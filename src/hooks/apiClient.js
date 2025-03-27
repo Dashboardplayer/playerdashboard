@@ -1,5 +1,6 @@
 // API client using fetch API with localStorage fallback for offline/development usage
 import { browserAuth } from '../utils/browserUtils.js';
+import { generateUUID } from '../utils/uuidUtils.js';
 
 const API_URL = 'http://localhost:5001/api';
 
@@ -144,7 +145,7 @@ function initializeWebSocket() {
         type: 'authenticate',
         token: user.token,
         timestamp: Date.now(),
-        clientId: crypto.randomUUID(),
+        clientId: generateUUID(),
         userId: user.id
       }));
     };

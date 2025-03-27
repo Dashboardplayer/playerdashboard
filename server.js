@@ -24,8 +24,9 @@ const {
 } = require('./src/services/twoFactorService');
 const rateLimit = require('express-rate-limit');
 const RefreshToken = require('./src/models/RefreshToken');
-const { addToDenylist, isTokenDenylisted } = require('./src/services/tokenDenylistService');
+const { isTokenBlacklisted, addToBlacklist } = require('./src/services/tokenBlacklistService');
 const Ably = require('ably');
+const { auth, authorize } = require('./src/middleware/auth');
 
 // Load environment variables
 dotenv.config();
@@ -254,14 +255,13 @@ const generateToken = (user) => {
   // Generate a unique jti (JWT ID)
   const jti = crypto.randomBytes(16).toString('hex');
 
-  return jwt.sign(
+  const token = jwt.sign(
     { 
       jti,
       sub: user._id.toString(),
       email: user.email,
       role: user.role,
-      company_id: user.company_id,
-      id: user._id.toString()
+      company_id: user.company_id
     },
     process.env.JWT_SECRET,
     { 
@@ -271,6 +271,8 @@ const generateToken = (user) => {
       issuer: 'player-dashboard'
     }
   );
+
+  return { token, jti };
 };
 
 // Enhanced authentication middleware with additional security checks
@@ -290,19 +292,19 @@ const authenticateToken = async (req, res, next) => {
       clockTolerance: 30
     });
     
-    // Check if token is denylisted
-    const isDenylisted = await isTokenDenylisted(decoded.jti);
-    if (isDenylisted) {
+    // Check if token is blacklisted
+    const isBlacklisted = await isTokenBlacklisted(decoded.jti);
+    if (isBlacklisted) {
       return res.status(401).json({ error: 'Token has been revoked' });
     }
 
     // Enhanced validation
-    if (!decoded.sub && !decoded.id) {
+    if (!decoded.sub) {
       return res.status(403).json({ error: 'Invalid token format' });
     }
     
     // Fetch current user data from database to verify role
-    const user = await User.findById(decoded.sub || decoded.id);
+    const user = await User.findById(decoded.sub);
     if (!user) {
       return res.status(403).json({ error: 'User not found' });
     }
@@ -314,7 +316,7 @@ const authenticateToken = async (req, res, next) => {
     
     // Store minimal user info in request
     req.user = {
-      id: decoded.sub || decoded.id,
+      id: decoded.sub,
       email: decoded.email,
       role: user.role, // Use role from database instead of token
       company_id: decoded.company_id,
@@ -332,28 +334,6 @@ const authenticateToken = async (req, res, next) => {
     }
     return res.status(403).json({ error: 'Token verification failed' });
   }
-};
-
-// Role-based authorization middleware
-const authorize = (...allowedRoles) => {
-  return async (req, res, next) => {
-    if (!req.user) {
-      return res.status(401).json({ error: 'Authentication required' });
-    }
-
-    // Fetch fresh user data from database
-    const user = await User.findById(req.user.id);
-    if (!user) {
-      return res.status(403).json({ error: 'User not found' });
-    }
-
-    // Check if user's current role is allowed
-    if (!allowedRoles.includes(user.role)) {
-      return res.status(403).json({ error: 'Insufficient permissions' });
-    }
-
-    next();
-  };
 };
 
 // MongoDB connection is required
@@ -521,16 +501,16 @@ wss.on('connection', function connection(ws, req) {
           issuer: 'player-dashboard'
         });
 
-        // Check if token is denylisted
-        const isDenylisted = await isTokenDenylisted(decoded.jti);
-        if (isDenylisted) {
-          console.log('Token denylisted, terminating WebSocket connection');
+        // Check if token is blacklisted
+        const isBlacklisted = await isTokenBlacklisted(decoded.jti);
+        if (isBlacklisted) {
+          console.log('Token blacklisted, terminating WebSocket connection');
           ws.close(4401, 'Token has been revoked');
           return;
         }
 
         // Verify user still exists and has same role
-        const user = await User.findById(decoded.sub || decoded.id);
+        const user = await User.findById(decoded.sub);
         if (!user || user.role !== decoded.role) {
           console.log('User changed or deleted, terminating WebSocket connection');
           ws.close(4401, 'User authentication invalid');
@@ -731,39 +711,37 @@ const handleCommandResponse = (data) => {
 // API Routes
 
 // Company routes
-app.get('/api/companies', authenticateToken, authorize('superadmin', 'bedrijfsadmin'), async (req, res) => {
+app.get('/api/companies', auth, authorize(['superadmin', 'bedrijfsadmin', 'user']), async (req, res) => {
   try {
     let userData = req.user;
     
     // If user is not superadmin, only return their company
-    if (userData.role !== 'superadmin' && userData.company_id) {
-      const company = await Company.findOne({ company_id: userData.company_id });
-      return res.json(company ? [company] : []);
+    if (userData.role !== 'superadmin') {
+      if (!userData.company_id) {
+        return res.json([{ company_name: 'Unknown Company' }]);
+      }
+      
+      // Use the new findByAnyId method
+      const company = await Company.findByAnyId(userData.company_id);
+      return res.json(company ? [company] : [{ company_name: 'Unknown Company' }]);
     }
     
-    // Otherwise return all companies
+    // For superadmin, return all companies
     const companies = await Company.find().sort({ company_name: 1 });
     return res.json(companies);
   } catch (error) {
+    console.error('Error fetching companies:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-app.post('/api/companies', authenticateToken, async (req, res) => {
+app.post('/api/companies', auth, authorize(['superadmin']), async (req, res) => {
   try {
-    // Only superadmin can create companies
-    if (req.user.role !== 'superadmin') {
-      return res.status(403).json({ error: 'Only superadmins can create companies' });
-    }
-    
-    // Check if company with this ID already exists
-    const existingCompany = await Company.findOne({ company_id: req.body.company_id });
-    if (existingCompany) {
-      return res.status(400).json({ error: `Company with ID "${req.body.company_id}" already exists` });
-    }
-    
     // Create new company
-    const company = new Company(req.body);
+    const company = new Company({
+      ...req.body,
+      company_id: req.body.company_id || new mongoose.Types.ObjectId().toString()
+    });
     await company.save();
     broadcastEvent('company_created', company);
     return res.status(201).json(company);
@@ -772,9 +750,20 @@ app.post('/api/companies', authenticateToken, async (req, res) => {
   }
 });
 
-app.put('/api/companies/:id', authenticateToken, async (req, res) => {
+app.put('/api/companies/:id', auth, authorize(['superadmin']), async (req, res) => {
   try {
-    const company = await Company.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const { id } = req.params;
+    
+    // Find company using the new method
+    const company = await Company.findByAnyId(id);
+    if (!company) {
+      return res.status(404).json({ error: 'Company not found' });
+    }
+    
+    // Update company fields
+    Object.assign(company, req.body);
+    await company.save();
+    
     broadcastEvent('company_updated', company);
     res.json(company);
   } catch (error) {
@@ -782,10 +771,18 @@ app.put('/api/companies/:id', authenticateToken, async (req, res) => {
   }
 });
 
-app.delete('/api/companies/:id', authenticateToken, async (req, res) => {
+app.delete('/api/companies/:id', auth, authorize(['superadmin']), async (req, res) => {
   try {
-    await Company.findByIdAndDelete(req.params.id);
-    broadcastEvent('company_deleted', { id: req.params.id });
+    const { id } = req.params;
+    
+    // Find and delete company using the new method
+    const company = await Company.findByAnyId(id);
+    if (!company) {
+      return res.status(404).json({ error: 'Company not found' });
+    }
+    
+    await company.deleteOne();
+    broadcastEvent('company_deleted', { id });
     res.status(204).send();
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -793,36 +790,45 @@ app.delete('/api/companies/:id', authenticateToken, async (req, res) => {
 });
 
 // Player routes
-app.get('/api/players', authenticateToken, authorize('superadmin', 'bedrijfsadmin', 'user'), async (req, res) => {
+app.get('/api/players', auth, authorize(['superadmin', 'bedrijfsadmin', 'user']), async (req, res) => {
   try {
     let userData = req.user;
-    const { company_id } = req.query;
     let query = {};
     
-    // If company_id is provided or user is not superadmin, filter by company
-    if (company_id || (userData.role !== 'superadmin' && userData.company_id)) {
-      query.company_id = company_id || userData.company_id;
+    // If user is not superadmin, only show players from their company
+    if (userData.role !== 'superadmin') {
+      if (!userData.company_id) {
+        return res.json([]); // No company, no players
+      }
+      query.company_id = userData.company_id;
     }
     
     const players = await Player.find(query).sort({ device_id: 1 });
     return res.json(players);
   } catch (error) {
+    console.error('Error fetching players:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-app.post('/api/players', authenticateToken, async (req, res) => {
+app.post('/api/players', auth, authorize(['superadmin', 'bedrijfsadmin']), async (req, res) => {
   try {
-    const { device_id, company_id } = req.body;
+    const { device_id } = req.body;
+    const company_id = req.body.company_id || req.user.company_id;
     
     // Validate required fields
-    if (!device_id || !company_id) {
-      return res.status(400).json({ error: 'Device ID and Company ID are required' });
+    if (!device_id) {
+      return res.status(400).json({ error: 'Device ID is required' });
     }
     
     // If user is not superadmin, they can only create players for their own company
-    if (req.user.role !== 'superadmin' && req.user.company_id !== company_id) {
-      return res.status(403).json({ error: 'You can only create players for your own company' });
+    if (req.user.role !== 'superadmin') {
+      if (!req.user.company_id) {
+        return res.status(403).json({ error: 'No company assigned to your account' });
+      }
+      if (company_id !== req.user.company_id) {
+        return res.status(403).json({ error: 'You can only create players for your own company' });
+      }
     }
     
     // Check if player with this device_id already exists
@@ -940,20 +946,23 @@ app.post('/api/players/:id/commands', authenticateToken, async (req, res) => {
 });
 
 // User routes
-app.get('/api/users', authenticateToken, authorize('superadmin', 'bedrijfsadmin'), async (req, res) => {
+app.get('/api/users', auth, authorize(['superadmin', 'bedrijfsadmin']), async (req, res) => {
   try {
     let userData = req.user;
-    const { company_id } = req.query;
     let query = {};
     
-    // If company_id is provided or user is not superadmin, filter by company
-    if (company_id || (userData.role !== 'superadmin' && userData.company_id)) {
-      query.company_id = company_id || userData.company_id;
+    // If user is not superadmin, only show users from their company
+    if (userData.role !== 'superadmin') {
+      query.company_id = userData.company_id;
     }
     
-    const users = await User.find(query).sort({ email: 1 });
+    const users = await User.find(query)
+      .select('-passwordHash -resetPasswordToken -resetPasswordExpires')
+      .sort({ email: 1 });
+      
     return res.json(users);
   } catch (error) {
+    console.error('Error fetching users:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -1054,7 +1063,7 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
     }
 
     // Generate access token
-    const token = generateToken(user);
+    const { token, jti } = generateToken(user);
     
     // Generate refresh token
     const refreshToken = await RefreshToken.generateRefreshToken(user._id);
@@ -1062,7 +1071,7 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
     console.log('Login successful:', { userId: user._id, email: user.email });
     
     res.json({
-      token,
+      token: token,
       refreshToken: refreshToken.token,
       user: {
         id: user._id,
@@ -1124,25 +1133,12 @@ app.post('/api/auth/refresh-token', async (req, res) => {
   }
 });
 
-// Add a function to force-disconnect WebSocket connections for a user
-const disconnectUserSessions = async (userId) => {
-  console.log(`Disconnecting all WebSocket sessions for user ${userId}`);
-  for (const [ws, connInfo] of ACTIVE_CONNECTIONS.entries()) {
-    if (connInfo.userId === userId) {
-      ws.close(4401, 'Session terminated by server');
-    }
-  }
-};
-
 // Modify the logout endpoint to disconnect WebSocket sessions
-app.post('/api/auth/logout', authenticateToken, async (req, res) => {
+app.post('/api/auth/logout', auth, async (req, res) => {
   try {
-    // Add the current access token to the denylist
+    // Add the current access token to the blacklist
     const exp = Math.floor(Date.now() / 1000) + (15 * 60); // 15 minutes from now
-    await addToDenylist(req.user.jti, exp);
-
-    // Disconnect all WebSocket sessions for this user
-    await disconnectUserSessions(req.user.id);
+    await addToBlacklist(req.user.jti, exp, req.user.id, req.token, 'LOGOUT');
 
     // If refresh token is provided, revoke it
     const { refreshToken } = req.body;
@@ -1725,7 +1721,7 @@ app.get('/api/auth/verify-token', async (req, res) => {
 });
 
 // Test route
-app.get('/api/users/test', (req, res) => {
+app.get('/api/users/test', auth, (req, res) => {
   console.log('Test route hit');
   res.json({ message: 'Test route working' });
 });
@@ -1867,9 +1863,9 @@ app.get('/api/auth/2fa/status', authenticateToken, async (req, res) => {
 // 2FA verification endpoint for login
 app.post('/api/auth/2fa/verify-login', async (req, res) => {
   try {
-    const { token, tempToken } = req.body;
+    const { token: verificationCode, tempToken } = req.body;
 
-    if (!token || !tempToken) {
+    if (!verificationCode || !tempToken) {
       return res.status(400).json({ error: 'Verification code and temporary token are required' });
     }
 
@@ -1897,18 +1893,18 @@ app.post('/api/auth/2fa/verify-login', async (req, res) => {
     }
 
     // Verify 2FA token
-    const result = await verifyTOTP(decoded.id, token);
+    const result = await verifyTOTP(decoded.id, verificationCode);
     if (result.error) {
       return res.status(401).json({ error: result.error });
     }
 
     // Generate final tokens
-    const accessToken = generateToken(user);
+    const { token, jti } = generateToken(user);
     const refreshToken = await RefreshToken.generateRefreshToken(user._id);
 
     // Return user data and tokens
     res.json({
-      token: accessToken,
+      token,
       refreshToken: refreshToken.token,
       user: {
         id: user._id,
@@ -1924,13 +1920,8 @@ app.post('/api/auth/2fa/verify-login', async (req, res) => {
 });
 
 // Monitoring endpoint
-app.get('/api/monitoring', authenticateToken, authorize('superadmin'), async (req, res) => {
+app.get('/api/monitoring', auth, authorize(['superadmin']), async (req, res) => {
   try {
-    // Only allow superadmin to access monitoring data
-    if (req.user.role !== 'superadmin') {
-      return res.status(403).json({ error: 'Access denied. Superadmin only.' });
-    }
-
     // Get memory usage
     const memory = process.memoryUsage();
 

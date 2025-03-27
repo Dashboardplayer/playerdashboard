@@ -4,6 +4,12 @@ import { sendPasswordResetEmail } from './emailService.js';
 import { validatePassword } from '../utils/passwordValidation.js';
 import xss from 'xss';
 import { jwtDecode } from 'jwt-decode';
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
+import RefreshToken from '../models/RefreshToken';
+import { addToBlacklist, blacklistAllUserTokens } from './tokenBlacklistService';
+import { generateUUID } from '../utils/uuidUtils.js';
 
 // WebSocket Configuration
 const WS_URL = process.env.NODE_ENV === 'production' 
@@ -189,6 +195,24 @@ const isValidEmail = (email) => {
   return emailRegex.test(email);
 };
 
+// Generate JWT token with JTI (JWT ID)
+const generateToken = (user) => {
+  const jti = crypto.randomBytes(16).toString('hex');
+  const token = jwt.sign(
+    { 
+      id: user._id,
+      email: user.email,
+      role: user.role,
+      jti
+    },
+    process.env.JWT_SECRET,
+    { 
+      expiresIn: '15m' // Shorter lived access tokens
+    }
+  );
+  return { token, jti };
+};
+
 // Register a new user
 export const registerUser = async (email, password, role, companyId) => {
   try {
@@ -209,40 +233,38 @@ export const registerUser = async (email, password, role, companyId) => {
       return { error: 'Invalid email format' };
     }
 
-    // Make registration request
-    const response = await fetch('/api/auth/register', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        email: sanitizedEmail,
-        password: password,
-        role: sanitizedRole,
-        company_id: sanitizedCompanyId
-      })
+    // Check if user already exists
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      throw new Error('Email already registered');
+    }
+
+    // Create new user
+    const user = new User({
+      email: sanitizedEmail,
+      password,
+      role: sanitizedRole,
+      company_id: sanitizedCompanyId
     });
 
-    const data = await response.json();
+    await user.save();
+    const { token, jti } = generateToken(user);
+    
+    // Generate refresh token
+    const refreshToken = await RefreshToken.generateRefreshToken(user._id);
 
-    if (!response.ok) {
-      return { error: data.error || 'Registration failed' };
-    }
-
-    // Store authentication data if provided
-    if (data.token && data.user) {
-      browserAuth.setAuth(data.token, data.refreshToken, data.user);
-      console.log('User registered successfully:', {
-        id: data.user.id,
-        email: data.user.email,
-        role: data.user.role
-      });
-    }
-
-    return { user: data.user, token: data.token, refreshToken: data.refreshToken };
+    return {
+      user: {
+        id: user._id,
+        email: user.email,
+        role: user.role
+      },
+      token,
+      refreshToken: refreshToken.token
+    };
   } catch (error) {
     console.error('Registration error:', error);
-    return { error: error.message };
+    throw error;
   }
 };
 
@@ -270,76 +292,65 @@ browserAuth.getTokens = () => ({
 // Login a user with enhanced security
 export const loginUser = async (email, password) => {
   try {
-    const response = await fetch('http://localhost:5001/api/auth/login', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ email, password })
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      return { error: data.error || 'Login failed' };
+    const user = await User.findOne({ email });
+    if (!user) {
+      throw new Error('Invalid login credentials');
     }
 
-    // Handle 2FA response
-    if (data.requires2FA) {
-      browserAuth.setAuth(data.tempToken, null, { email, requires2FA: true });
-      return {
-        requires2FA: true,
-        tempToken: data.tempToken
-      };
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      throw new Error('Invalid login credentials');
     }
 
-    // Store auth data
-    if (data.token && data.refreshToken && data.user) {
-      browserAuth.setAuth(data.token, data.refreshToken, data.user);
-      initializeWebSocket();
+    if (!user.isActive) {
+      throw new Error('Account is disabled');
     }
+
+    const { token, jti } = generateToken(user);
+    const refreshToken = await RefreshToken.generateRefreshToken(user._id);
 
     return {
-      user: data.user,
-      token: data.token,
-      refreshToken: data.refreshToken
+      user: {
+        id: user._id,
+        email: user.email,
+        role: user.role
+      },
+      token,
+      refreshToken: refreshToken.token
     };
   } catch (error) {
     console.error('Login error:', error);
-    return { error: error.message };
+    throw error;
   }
 };
 
 // Refresh access token
-export const refreshAccessToken = async () => {
+export const refreshAccessToken = async (refreshToken) => {
   try {
-    const { refreshToken } = browserAuth.getTokens();
-    if (!refreshToken) {
-      throw new Error('No refresh token available');
+    const token = await RefreshToken.findOne({ token: refreshToken });
+    if (!token || !token.isActive()) {
+      throw new Error('Invalid refresh token');
     }
 
-    const response = await fetch('http://localhost:5001/api/auth/refresh-token', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ refreshToken })
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.error || 'Token refresh failed');
+    const user = await User.findById(token.user);
+    if (!user || !user.isActive) {
+      throw new Error('User not found or inactive');
     }
 
-    // Store new tokens
-    browserAuth.setAuth(data.token, data.refreshToken, data.user);
-    return data;
+    // Generate new access token
+    const { token: newToken, jti } = generateToken(user);
+
+    return {
+      token: newToken,
+      user: {
+        id: user._id,
+        email: user.email,
+        role: user.role
+      }
+    };
   } catch (error) {
     console.error('Token refresh error:', error);
-    browserAuth.clearAuth();
-    window.location.href = '/login';
-    return { error: error.message };
+    throw error;
   }
 };
 
@@ -357,7 +368,7 @@ export const verifyToken = async () => {
     
     if (decoded.exp < currentTime) {
       // Token is expired, try to refresh
-      const refreshResult = await refreshAccessToken();
+      const refreshResult = await refreshAccessToken(refreshToken);
       if (refreshResult.error) {
         return null;
       }
@@ -479,11 +490,12 @@ function initializeWebSocket() {
       reconnectAttempts = 0; // Reset attempts on successful connection
       
       // Send an initial authentication message
-      ws.send(JSON.stringify({ 
+      ws.send(JSON.stringify({
         type: 'authenticate',
         token: user.token,
         timestamp: Date.now(),
-        clientId: crypto.randomUUID()
+        clientId: generateUUID(),
+        userId: user.id
       }));
     };
 
@@ -545,24 +557,60 @@ if (browserAuth.getUser()) {
 }
 
 // Logout user
-export const logoutUser = async () => {
+export const logoutUser = async (userId, token, jti) => {
   try {
-    const { accessToken, refreshToken } = browserAuth.getTokens();
-    
-    if (accessToken) {
-      await fetch('http://localhost:5001/api/auth/logout', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ refreshToken })
-      });
+    // Get token expiration from JWT
+    const decoded = jwt.decode(token);
+    if (!decoded || !decoded.exp) {
+      throw new Error('Invalid token');
     }
+
+    // Add token to blacklist
+    await addToBlacklist(jti, decoded.exp, userId, token, 'LOGOUT');
+
+    // Revoke all refresh tokens for the user
+    await RefreshToken.updateMany(
+      { user: userId, revokedAt: null },
+      { revokedAt: new Date() }
+    );
+
+    return true;
   } catch (error) {
     console.error('Logout error:', error);
-  } finally {
-    browserAuth.clearAuth();
-    window.location.href = '/login';
+    throw error;
+  }
+};
+
+// Change password
+export const changePassword = async (userId, oldPassword, newPassword) => {
+  try {
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    const isMatch = await bcrypt.compare(oldPassword, user.password);
+    if (!isMatch) {
+      throw new Error('Current password is incorrect');
+    }
+
+    // Update password
+    user.password = newPassword;
+    await user.save();
+
+    // Blacklist all existing tokens for security
+    await blacklistAllUserTokens(userId, 'PASSWORD_CHANGE');
+
+    // Generate new token
+    const { token, jti } = generateToken(user);
+    const refreshToken = await RefreshToken.generateRefreshToken(user._id);
+
+    return {
+      token,
+      refreshToken: refreshToken.token
+    };
+  } catch (error) {
+    console.error('Password change error:', error);
+    throw error;
   }
 };

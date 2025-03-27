@@ -1,31 +1,30 @@
 import cron from 'node-cron';
-import { clearExpiredTokens } from '../services/tokenDenylistService.js';
+import { clearExpiredTokens } from '../services/tokenBlacklistService.js';
 import RefreshToken from '../models/RefreshToken.js';
 
 // Run token maintenance tasks
 const runTokenMaintenance = async () => {
   try {
-    // Clear expired tokens from Redis denylist
-    await clearExpiredTokens();
+    // Clear expired tokens from blacklist
+    const blacklistCleared = await clearExpiredTokens();
+    console.log(`Cleaned up ${blacklistCleared} expired tokens from blacklist`);
 
     // Remove expired refresh tokens from database
-    const result = await RefreshToken.deleteMany({
+    const refreshResult = await RefreshToken.deleteMany({
       $or: [
         { expiresAt: { $lt: new Date() } },
         { revokedAt: { $ne: null } }
       ]
     });
 
-    console.log(`Cleaned up ${result.deletedCount} expired refresh tokens from database`);
+    console.log(`Cleaned up ${refreshResult.deletedCount} expired refresh tokens from database`);
   } catch (error) {
     console.error('Token maintenance error:', error);
   }
 };
 
-// Schedule token maintenance to run every day at 3 AM
-cron.schedule('0 3 * * *', runTokenMaintenance, {
-  timezone: 'Europe/Amsterdam'
-});
+// Schedule token maintenance to run every hour
+cron.schedule('0 * * * *', runTokenMaintenance);
 
 // Export for manual execution if needed
 export default runTokenMaintenance; 
