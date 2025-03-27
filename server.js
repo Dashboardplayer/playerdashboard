@@ -2032,6 +2032,15 @@ app.use((req, res, next) => {
   next();
 });
 
+// Root route handler
+app.get('/', (req, res) => {
+  res.json({ 
+    status: 'ok',
+    message: 'Displaybeheer API is running',
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Start server
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
