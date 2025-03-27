@@ -1,5 +1,5 @@
-import mongoose from 'mongoose';
-import crypto from 'crypto';
+const mongoose = require('mongoose');
+const crypto = require('crypto');
 
 const refreshTokenSchema = new mongoose.Schema({
   token: {
@@ -69,4 +69,4 @@ refreshTokenSchema.statics.revokeToken = async function(token) {
 
 const RefreshToken = mongoose.model('RefreshToken', refreshTokenSchema);
 
-export default RefreshToken; 
+module.exports = RefreshToken; 

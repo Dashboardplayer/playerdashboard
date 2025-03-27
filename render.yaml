@@ -9,5 +9,7 @@ services:
         value: production
       - key: NODE_VERSION
         value: 18.x
+      - key: REDIS_URL
+        sync: false # This will be set manually in the Render dashboard
     healthCheckPath: /health
     autoDeploy: true 

@@ -1,4 +1,4 @@
-import mongoose from 'mongoose';
+const mongoose = require('mongoose');
 
 // Company Schema - Replaces companies table in Supabase
 const companySchema = new mongoose.Schema({
@@ -31,4 +31,4 @@ const companySchema = new mongoose.Schema({
 
 // Create and export Company model
 const Company = mongoose.model('Company', companySchema);
-export default Company;
+module.exports = Company;

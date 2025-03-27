@@ -1,5 +1,5 @@
-import Redis from 'ioredis';
-import dotenv from 'dotenv';
+const Redis = require('ioredis');
+const dotenv = require('dotenv');
 
 dotenv.config();
 
@@ -25,7 +25,7 @@ redisClient.on('connect', () => {
 });
 
 // Add a token to the denylist
-export const addToDenylist = async (jti, exp) => {
+const addToDenylist = async (jti, exp) => {
   try {
     const expiryInSeconds = exp - Math.floor(Date.now() / 1000);
     if (expiryInSeconds > 0) {
@@ -39,7 +39,7 @@ export const addToDenylist = async (jti, exp) => {
 };
 
 // Check if a token is denylisted
-export const isTokenDenylisted = async (jti) => {
+const isTokenDenylisted = async (jti) => {
   try {
     const result = await redisClient.get(`denylist:${jti}`);
     return result !== null;
@@ -51,7 +51,7 @@ export const isTokenDenylisted = async (jti) => {
 };
 
 // Clear expired tokens from denylist (maintenance function)
-export const clearExpiredTokens = async () => {
+const clearExpiredTokens = async () => {
   try {
     const keys = await redisClient.keys('denylist:*');
     let cleared = 0;
@@ -70,4 +70,9 @@ export const clearExpiredTokens = async () => {
   }
 };
 
-export default redisClient; 
+module.exports = {
+  redisClient,
+  addToDenylist,
+  isTokenDenylisted,
+  clearExpiredTokens
+}; 

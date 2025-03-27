@@ -1,7 +1,6 @@
-import mongoose from 'mongoose';
-import bcrypt from 'bcryptjs';
-import crypto from 'crypto';
-import { browserAuth } from '../utils/browserUtils.js';
+const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 
 // Check if we're in a browser environment
 const isBrowser = typeof window !== 'undefined';
@@ -177,42 +176,20 @@ if (!isBrowser) {
   User = {
     find: async (query = {}) => {
       console.log('Browser mock: User.find called with', query);
-      // Return empty array in browser environment since we'll use authAPI instead
       return [];
     },
-    
     findOne: async (query) => {
       console.log('Browser mock: User.findOne called with', query);
-      // Return null in browser environment since we'll use authAPI instead
       return null;
     },
-    
     findById: async (id) => {
       console.log('Browser mock: User.findById called with', id);
-      // Return null in browser environment since we'll use authAPI instead
       return null;
     },
-    
     findByIdAndUpdate: async () => null,
-    
     findByIdAndDelete: async () => null,
-    
-    findByEmail: async (email) => {
-      console.log('Browser mock: User.findByEmail called with', email);
-      // Return null in browser environment since we'll use authAPI instead
-      return null;
-    },
-
-    generateResetToken: function() {
-      // In browser environment, generate a mock token
-      const mockToken = Array.from(crypto.getRandomValues(new Uint8Array(20)))
-        .map(b => b.toString(16).padStart(2, '0'))
-        .join('');
-      this.resetPasswordToken = mockToken;
-      this.resetPasswordExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
-      return mockToken;
-    }
+    findByEmail: async (email) => null
   };
 }
 
-export default User;
+module.exports = User;

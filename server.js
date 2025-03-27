@@ -1,31 +1,31 @@
-import express from 'express';
-import mongoose from 'mongoose';
-import cors from 'cors';
-import bodyParser from 'body-parser';
-import dotenv from 'dotenv';
-import jwt from 'jsonwebtoken';
-import Mailjet from 'node-mailjet';
-import crypto from 'crypto';
-import { createServer } from 'http';
-import { WebSocket, WebSocketServer } from 'ws';
-import helmet from 'helmet';
-import User from './src/models/User.js';
-import Company from './src/models/Company.js';
-import { sendPasswordResetEmail, sendRegistrationInvitationEmail } from './src/services/emailService.js';
-import './src/cron/registrationReminders.js'; // Initialize registration reminders cron job
-import './src/cron/tokenMaintenance.js'; // Initialize token maintenance cron job
-import { validatePassword } from './src/utils/passwordValidation.js';
-import {
+const express = require('express');
+const mongoose = require('mongoose');
+const cors = require('cors');
+const bodyParser = require('body-parser');
+const dotenv = require('dotenv');
+const jwt = require('jsonwebtoken');
+const Mailjet = require('node-mailjet');
+const crypto = require('crypto');
+const { createServer } = require('http');
+const { WebSocket, WebSocketServer } = require('ws');
+const helmet = require('helmet');
+const User = require('./src/models/User');
+const Company = require('./src/models/Company');
+const { sendPasswordResetEmail, sendRegistrationInvitationEmail } = require('./src/services/emailService');
+require('./src/cron/registrationReminders'); // Initialize registration reminders cron job
+require('./src/cron/tokenMaintenance'); // Initialize token maintenance cron job
+const { validatePassword } = require('./src/utils/passwordValidation');
+const {
   generateTOTPSecret,
   verifyTOTPSetup,
   verifyTOTP,
   disable2FA,
   get2FAStatus
-} from './src/services/twoFactorService.js';
-import rateLimit from 'express-rate-limit';
-import RefreshToken from './src/models/RefreshToken.js';
-import { addToDenylist, isTokenDenylisted } from './src/services/tokenDenylistService.js';
-import Ably from 'ably';
+} = require('./src/services/twoFactorService');
+const rateLimit = require('express-rate-limit');
+const RefreshToken = require('./src/models/RefreshToken');
+const { addToDenylist, isTokenDenylisted } = require('./src/services/tokenDenylistService');
+const Ably = require('ably');
 
 // Load environment variables
 dotenv.config();
