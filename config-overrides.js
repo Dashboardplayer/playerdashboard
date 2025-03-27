@@ -30,6 +30,7 @@ module.exports = function override(config, env) {
       process: require.resolve('process/browser'),
       path: require.resolve('path-browserify'),
       util: require.resolve('util'),
+      console: require.resolve('console-browserify'),
       fs: false,
       net: false,
       tls: false,
@@ -40,17 +41,36 @@ module.exports = function override(config, env) {
     modules: ['node_modules', 'src'].concat(config.resolve.modules || []),
   };
 
+  // Configure module rules
+  config.module.rules.push({
+    test: /\.(js|jsx)$/,
+    exclude: /node_modules/,
+    use: {
+      loader: 'babel-loader',
+      options: {
+        presets: ['@babel/preset-env', '@babel/preset-react'],
+        plugins: [['@babel/plugin-transform-runtime', { regenerator: true }]]
+      }
+    }
+  });
+
   // Configure plugins
   config.plugins = [
-    ...config.plugins,
-    new NodePolyfillPlugin(),
+    ...config.plugins.filter(plugin => 
+      plugin.constructor.name !== 'NodePolyfillPlugin' && 
+      plugin.constructor.name !== 'ProvidePlugin'
+    ),
+    new NodePolyfillPlugin({
+      excludeAliases: ['console']
+    }),
     new webpack.ProvidePlugin({
       process: 'process/browser',
       Buffer: ['buffer', 'Buffer'],
+      console: ['console-browserify']
     }),
     new webpack.DefinePlugin({
-      'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'development'),
-    }),
+      'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'development')
+    })
   ];
 
   return config;
