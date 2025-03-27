@@ -18,8 +18,7 @@ module.exports = function override(config, env) {
     "fs": false,
     "net": false,
     "tls": false,
-    "zlib": false,
-    "console": require.resolve("console-browserify")
+    "zlib": false
   };
 
   // Add plugins
@@ -27,9 +26,12 @@ module.exports = function override(config, env) {
     ...config.plugins,
     new webpack.ProvidePlugin({
       process: 'process/browser',
-      Buffer: ['buffer', 'Buffer']
+      Buffer: ['buffer', 'Buffer'],
+      console: ['console-browserify']
     }),
-    new NodePolyfillPlugin()
+    new NodePolyfillPlugin({
+      includeAliases: ['console']
+    })
   ];
 
   return config;
