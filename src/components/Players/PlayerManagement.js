@@ -59,8 +59,6 @@ import {
 import { playerAPI, companyAPI } from '../../hooks/apiClient';
 import { ablyService } from '../../services/ablyService';
 
-const ITEMS_PER_PAGE = 12;
-
 // PlayerCard component moved outside
 const PlayerCard = ({ 
   player, 

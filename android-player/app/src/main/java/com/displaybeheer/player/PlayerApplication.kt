@@ -41,60 +41,20 @@ class PlayerApplication : Application() {
         try {
             ablyClient = AblyRealtime(clientOptions)
             
-            // Add connection state listener with enhanced logging
+            // Add connection state listener
             ablyClient.connection.on { state ->
-                val stateMessage = when (state.current) {
-                    ConnectionState.initialized -> "Initialized - SDK instantiated"
-                    ConnectionState.connecting -> "Connecting - Attempting to connect"
-                    ConnectionState.connected -> "Connected successfully"
-                    ConnectionState.disconnected -> "Disconnected - Connection dropped but will retry"
-                    ConnectionState.suspended -> "Suspended - Multiple failed connection attempts"
-                    ConnectionState.closing -> "Closing - Connection is closing"
-                    ConnectionState.closed -> "Closed - Connection is closed"
-                    ConnectionState.failed -> "Failed - Unrecoverable failure"
-                    else -> "Unknown state"
-                }
-                
-                Log.d(TAG, "Ably connection state changed to: $stateMessage")
-                Log.d(TAG, "Previous state was: ${state.previous}")
-                
-                if (state.reason != null) {
-                    Log.e(TAG, "State change reason: ${state.reason?.message}")
-                    Log.e(TAG, "Error code: ${state.reason?.code}")
-                    Log.e(TAG, "Status code: ${state.reason?.statusCode}")
-                    Log.e(TAG, "Error details: ${state.reason?.toString()}")
-                }
-                
+                Log.d(TAG, "Ably connection state changed to: ${state.current}")
                 when (state.current) {
-                    ConnectionState.connected -> {
-                        Log.i(TAG, "Successfully connected to Ably")
-                        setupChannels(deviceId)
-                    }
-                    ConnectionState.failed -> {
-                        Log.e(TAG, "Connection failed: ${state.reason?.message}")
-                        // Broadcast connection failure
-                        sendBroadcast(Intent("com.displaybeheer.player.CONNECTION_STATE")
-                            .putExtra("state", "FAILED")
-                            .putExtra("message", state.reason?.message))
-                    }
-                    ConnectionState.disconnected -> {
-                        Log.w(TAG, "Disconnected: ${state.reason?.message}")
-                        // Broadcast disconnection
-                        sendBroadcast(Intent("com.displaybeheer.player.CONNECTION_STATE")
-                            .putExtra("state", "DISCONNECTED")
-                            .putExtra("message", state.reason?.message))
-                    }
+                    ConnectionState.connected -> setupChannels(deviceId)
+                    ConnectionState.failed -> Log.e(TAG, "Connection failed: ${state.reason?.message}")
+                    ConnectionState.disconnected -> Log.w(TAG, "Disconnected: ${state.reason?.message}")
                     else -> Log.d(TAG, "Connection state: ${state.current}")
                 }
             }
             
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to initialize Ably", e)
-            Log.e(TAG, "Stack trace: ${e.stackTraceToString()}")
-            // Broadcast initialization failure
-            sendBroadcast(Intent("com.displaybeheer.player.CONNECTION_STATE")
-                .putExtra("state", "FAILED")
-                .putExtra("message", "Failed to initialize Ably: ${e.message}"))
+            Log.e(TAG, "Failed to initialize Ably: ${e.message}")
+            e.printStackTrace()
         }
     }
     

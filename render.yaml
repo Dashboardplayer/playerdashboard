@@ -1,11 +1,13 @@
 services:
   - type: web
-    name: displaybeheer-server
+    name: player-dashboard
     env: node
-    buildCommand: npm install
+    buildCommand: npm install && npm run build
     startCommand: node server.js
     envVars:
       - key: NODE_ENV
         value: production
-      - key: PORT
-        value: 5001 
+      - key: NODE_VERSION
+        value: 18.x
+    healthCheckPath: /health
+    autoDeploy: true 

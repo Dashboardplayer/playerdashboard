@@ -12,8 +12,6 @@ import {
   Container,
   Typography,
   TextField,
-  FormControlLabel,
-  Checkbox,
   Button,
   Link,
   Paper,
@@ -47,7 +45,6 @@ function LoginPage() {
   const [show2FADialog, setShow2FADialog] = useState(false);
   const [verificationCode, setVerificationCode] = useState('');
   const [tempToken, setTempToken] = useState(null);
-  const [lastAttemptTime, setLastAttemptTime] = useState(null);
   const [delayTimeRemaining, setDelayTimeRemaining] = useState(0);
 
   const navigate = useNavigate();
@@ -91,7 +88,7 @@ function LoginPage() {
           localStorage.removeItem('lastLoginAttempt');
           setLockoutUntil(null);
           setLoginAttempts(0);
-          setLastAttemptTime(null);
+          setDelayTimeRemaining(0);
           setError('');
         }
       }
@@ -144,7 +141,6 @@ function LoginPage() {
     const newAttempts = loginAttempts + 1;
     
     setLoginAttempts(newAttempts);
-    setLastAttemptTime(now);
     
     localStorage.setItem('loginAttempts', newAttempts);
     localStorage.setItem('lastLoginAttempt', now);
@@ -171,8 +167,6 @@ function LoginPage() {
   const resetLoginAttempts = () => {
     setLoginAttempts(0);
     setLockoutUntil(null);
-    setLastAttemptTime(null);
-    setDelayTimeRemaining(0);
     localStorage.removeItem('loginAttempts');
     localStorage.removeItem('loginLockoutUntil');
     localStorage.removeItem('lastLoginAttempt');
