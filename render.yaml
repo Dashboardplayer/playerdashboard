@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: displaybeheer-server
+    env: node
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5001 

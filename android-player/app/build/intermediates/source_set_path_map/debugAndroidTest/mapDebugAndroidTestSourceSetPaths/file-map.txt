@@ -1,0 +1,4 @@
+com.displaybeheer.player.test.app-androidTest-0 C:\Users\mootj\OneDrive\Bureaublad\testplayer-nieuw\android-player\app\build\generated\res\resValues\androidTest\debug
+com.displaybeheer.player.test.app-mergeDebugAndroidTestResources-1 C:\Users\mootj\OneDrive\Bureaublad\testplayer-nieuw\android-player\app\build\intermediates\incremental\debugAndroidTest\mergeDebugAndroidTestResources\merged.dir
+com.displaybeheer.player.test.app-mergeDebugAndroidTestResources-2 C:\Users\mootj\OneDrive\Bureaublad\testplayer-nieuw\android-player\app\build\intermediates\incremental\debugAndroidTest\mergeDebugAndroidTestResources\stripped.dir
+com.displaybeheer.player.test.app-debugAndroidTest-3 C:\Users\mootj\OneDrive\Bureaublad\testplayer-nieuw\android-player\app\build\intermediates\merged_res\debugAndroidTest\mergeDebugAndroidTestResources

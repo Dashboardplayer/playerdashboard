@@ -9,9 +9,10 @@ import {
   Alert, 
   CircularProgress,
   IconButton,
-  InputAdornment
+  InputAdornment,
+  Paper
 } from '@mui/material';
-import { Visibility, VisibilityOff } from '@mui/icons-material';
+import { Visibility, VisibilityOff, LockOutlined } from '@mui/icons-material';
 import { validatePassword } from '../../utils/passwordValidation';
 import PasswordRequirements from './PasswordRequirements';
 
@@ -131,99 +132,250 @@ function ResetPassword() {
   };
 
   return (
-    <Container maxWidth="xs" sx={{ mt: 8 }}>
-      <Box
+    <Box
+      sx={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'flex-start',
+        justifyContent: 'center',
+        background: 'linear-gradient(135deg, #f5f7fa 0%, #e4e8eb 100%)',
+        p: { xs: 2, sm: 4 },
+        pt: { xs: 4, sm: 8 }
+      }}
+    >
+      <Container 
+        maxWidth="sm"
         sx={{
-          p: 3,
-          boxShadow: 3,
-          borderRadius: 2,
-          textAlign: 'center'
+          mt: { xs: 4, sm: 6, md: 8 },
+          mb: 4
         }}
       >
-        <Typography variant="h5" gutterBottom>
-          Wachtwoord Resetten
-        </Typography>
-        
-        {!tokenValid ? (
-          <Alert severity="error" sx={{ mt: 2 }}>
-            {statusMessage}
-          </Alert>
-        ) : (
-          <Box component="form" onSubmit={handleResetPassword} sx={{ mt: 2 }}>
-            <TextField
-              fullWidth
-              margin="normal"
-              label="Nieuw Wachtwoord"
-              type={showPassword ? 'text' : 'password'}
-              value={password}
-              onChange={(e) => {
-                setPassword(e.target.value);
-                setPasswordErrors([]);
-              }}
-              required
-              disabled={isLoading}
-              InputProps={{
-                endAdornment: (
-                  <InputAdornment position="end">
-                    <IconButton
-                      aria-label="toggle password visibility"
-                      onClick={handleTogglePassword}
-                      edge="end"
-                      disabled={isLoading}
-                    >
-                      {showPassword ? <VisibilityOff /> : <Visibility />}
-                    </IconButton>
-                  </InputAdornment>
-                ),
-              }}
-            />
+        <Box
+          sx={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            mb: 4
+          }}
+        >
+          <Typography
+            variant="h4"
+            component="h1"
+            sx={{
+              fontWeight: 700,
+              color: '#1a365d',
+              mb: 1,
+              textAlign: 'center'
+            }}
+          >
+            DisplayBeheer.nl
+          </Typography>
+        </Box>
 
-            <TextField
-              fullWidth
-              margin="normal"
-              label="Bevestig Wachtwoord"
-              type={showConfirmPassword ? 'text' : 'password'}
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              required
-              disabled={isLoading}
-              InputProps={{
-                endAdornment: (
-                  <InputAdornment position="end">
-                    <IconButton
-                      aria-label="toggle password visibility"
-                      onClick={handleToggleConfirmPassword}
-                      edge="end"
-                      disabled={isLoading}
-                    >
-                      {showConfirmPassword ? <VisibilityOff /> : <Visibility />}
-                    </IconButton>
-                  </InputAdornment>
-                ),
+        <Paper
+          elevation={3}
+          sx={{
+            p: { xs: 3, sm: 4 },
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            borderRadius: 2,
+            background: 'linear-gradient(to bottom, #ffffff, #f8f9fa)',
+            width: '100%',
+            maxWidth: '440px',
+            mx: 'auto',
+            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+          }}
+        >
+          <Box
+            sx={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              width: '100%'
+            }}
+          >
+            <LockOutlined
+              sx={{
+                fontSize: 24,
+                mb: 2,
+                color: '#1a365d',
+                p: 1.5,
+                borderRadius: '50%',
+                backgroundColor: 'rgba(26, 54, 93, 0.1)'
               }}
             />
-
-            <PasswordRequirements password={password} />
-
-            <Button
-              type="submit"
-              variant="contained"
-              fullWidth
-              sx={{ mt: 2 }}
-              disabled={isLoading}
+            
+            <Typography
+              variant="h6"
+              sx={{
+                mb: 1,
+                fontWeight: 600,
+                color: '#1a365d'
+              }}
             >
-              {isLoading ? <CircularProgress size={24} /> : 'Reset Wachtwoord'}
-            </Button>
+              Nieuw wachtwoord instellen
+            </Typography>
+            
+            <Typography
+              variant="body2"
+              sx={{
+                mb: 3,
+                color: '#4a5568',
+                textAlign: 'center',
+                maxWidth: '400px'
+              }}
+            >
+              Voer een nieuw wachtwoord in voor je account.
+            </Typography>
+
+            {passwordErrors.length > 0 && (
+              <Alert
+                severity="error"
+                sx={{
+                  mb: 2,
+                  width: '100%',
+                  '& .MuiAlert-message': {
+                    fontSize: '0.875rem'
+                  }
+                }}
+              >
+                <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                  Je wachtwoord moet voldoen aan de volgende eisen:
+                </Typography>
+                <ul style={{ margin: 0, paddingLeft: '1.5rem' }}>
+                  {passwordErrors.map((error, index) => (
+                    <li key={index}>{error}</li>
+                  ))}
+                </ul>
+              </Alert>
+            )}
+
+            <Box
+              component="form"
+              onSubmit={handleResetPassword}
+              sx={{
+                width: '100%',
+                mt: 1
+              }}
+            >
+              <TextField
+                margin="normal"
+                required
+                fullWidth
+                name="password"
+                label="Nieuw wachtwoord"
+                type={showPassword ? 'text' : 'password'}
+                id="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                error={isError}
+                disabled={isLoading}
+                size="small"
+                InputProps={{
+                  sx: {
+                    borderRadius: 1,
+                    backgroundColor: 'background.paper'
+                  },
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton
+                        aria-label="toggle password visibility"
+                        onClick={() => setShowPassword(!showPassword)}
+                        edge="end"
+                        size="small"
+                        sx={{ color: 'text.secondary' }}
+                      >
+                        {showPassword ? <VisibilityOff /> : <Visibility />}
+                      </IconButton>
+                    </InputAdornment>
+                  )
+                }}
+              />
+
+              <TextField
+                margin="normal"
+                required
+                fullWidth
+                name="confirmPassword"
+                label="Bevestig wachtwoord"
+                type={showConfirmPassword ? 'text' : 'password'}
+                id="confirmPassword"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                error={isError}
+                disabled={isLoading}
+                size="small"
+                InputProps={{
+                  sx: {
+                    borderRadius: 1,
+                    backgroundColor: 'background.paper'
+                  },
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton
+                        aria-label="toggle password visibility"
+                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                        edge="end"
+                        size="small"
+                        sx={{ color: 'text.secondary' }}
+                      >
+                        {showConfirmPassword ? <VisibilityOff /> : <Visibility />}
+                      </IconButton>
+                    </InputAdornment>
+                  )
+                }}
+              />
+
+              <PasswordRequirements password={password} />
+
+              <Button
+                type="submit"
+                fullWidth
+                variant="contained"
+                disabled={isLoading}
+                sx={{
+                  mt: 3,
+                  mb: 2,
+                  py: 1,
+                  borderRadius: 1,
+                  textTransform: 'none',
+                  fontSize: '0.9rem',
+                  fontWeight: 500,
+                  boxShadow: 2,
+                  backgroundColor: '#1a365d',
+                  '&:hover': {
+                    backgroundColor: '#2c5282',
+                    boxShadow: 4
+                  }
+                }}
+              >
+                {isLoading ? (
+                  <CircularProgress size={20} />
+                ) : (
+                  'Wachtwoord wijzigen'
+                )}
+              </Button>
+
+              {statusMessage && (
+                <Alert 
+                  severity={isError ? 'error' : 'success'} 
+                  sx={{ 
+                    mb: 3,
+                    borderRadius: 1,
+                    '& .MuiAlert-message': {
+                      fontSize: { xs: '0.875rem', sm: '1rem' }
+                    }
+                  }}
+                >
+                  {statusMessage}
+                </Alert>
+              )}
+            </Box>
           </Box>
-        )}
-        
-        {statusMessage && !tokenValid === false && (
-          <Alert severity={isError ? 'error' : 'success'} sx={{ mt: 2 }}>
-            {statusMessage}
-          </Alert>
-        )}
-      </Box>
-    </Container>
+        </Paper>
+      </Container>
+    </Box>
   );
 }
 

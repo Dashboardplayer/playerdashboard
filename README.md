@@ -1,256 +1,201 @@
-# Player Management Dashboard
+# Player Dashboard
 
-Een webapplicatie voor het beheren van digitale spelers (displays) voor verschillende bedrijven.
+## 1. Project Overview
+The Player Dashboard is a web-based application built with React and Node.js that provides a comprehensive management system for players and companies. It features user authentication with 2FA support, QR code generation, and real-time updates through WebSocket connections. The application uses MongoDB for data storage and includes various security features such as XSS protection and helmet security.
 
-## Projectoverzicht
-
-Dit project is een React-applicatie met een Express backend die het mogelijk maakt om digitale spelers (displays) te beheren voor verschillende bedrijven. Het systeem ondersteunt verschillende gebruikersrollen (superadmin, bedrijfsadmin, gebruiker) en biedt functionaliteit voor het aanmaken en beheren van bedrijven, spelers en gebruikers.
-
-## Projectstructuur
-
-### Belangrijke bestanden en mappen
-
+## 2. Project Structure
 ```
-├── server.js                 # Express backend server
-├── .env                      # Omgevingsvariabelen
-├── src/                      # Frontend broncode
-│   ├── App.js                # Hoofdcomponent met routing
-│   ├── index.js              # Entry point voor React
-│   ├── db.js                 # Database connectie
-│   ├── components/           # React componenten
-│   │   ├── Auth/             # Authenticatie componenten
-│   │   ├── Dashboards/       # Dashboard componenten
-│   │   ├── Forms/            # Formulier componenten
-│   │   └── Layouts/          # Layout componenten
-│   ├── contexts/             # React contexts
-│   ├── hooks/                # Custom hooks
-│   ├── models/               # MongoDB modellen
-│   ├── services/             # Service functies
-│   ├── utils/                # Hulpfuncties
-│   └── shims/                # Polyfills en compatibiliteit
-└── public/                   # Statische bestanden
+├── public/                 # Static files
+├── src/                    # Source code
+│   ├── assets/            # Images, fonts, and other static resources
+│   ├── components/        # React components
+│   ├── config/           # Configuration files
+│   ├── contexts/         # React context providers
+│   ├── cron/            # Scheduled tasks
+│   ├── hooks/           # Custom React hooks
+│   ├── middleware/      # Express middleware
+│   ├── models/          # MongoDB models
+│   ├── services/        # Business logic and API services
+│   ├── shims/          # Polyfills and compatibility files
+│   ├── utils/          # Utility functions
+│   ├── App.js          # Main React component
+│   ├── db.js           # Database connection setup
+│   ├── index.js        # Application entry point
+│   ├── initMongoDB.js  # Database initialization script
+│   └── setupTests.js   # Test configuration
+├── .env                # Environment variables
+├── .gitignore         # Git ignore rules
+├── config-overrides.js # React configuration overrides
+├── create-admin.js    # Admin user creation script
+├── package.json       # Project dependencies and scripts
+└── server.js          # Express server setup
 ```
 
-## Bestandsanalyse
+## 3. File Descriptions
 
-### Root bestanden
+### Core Files
+- `server.js`: Main Express server file that handles API routes and WebSocket connections
+- `src/App.js`: Main React application component
+- `src/db.js`: Database connection and configuration
+- `src/initMongoDB.js`: Script for initializing the MongoDB database
+- `create-admin.js`: Utility script for creating administrator accounts
 
-| Bestand | Doel | In gebruik | Data opslag |
-|---------|------|------------|-------------|
-| `server.js` | Express backend server die API endpoints biedt voor authenticatie, bedrijven en spelers | Ja | MongoDB met in-memory fallback |
-| `.env` | Omgevingsvariabelen voor server configuratie (PORT, MONGO_URI, JWT_SECRET) | Ja | N/A |
-| `config-overrides.js` | Webpack configuratie aanpassingen voor React | Ja | N/A |
-| `package.json` | Project metadata en dependencies | Ja | N/A |
-| `create-admin.js` | Script om een admin gebruiker aan te maken | Ja | MongoDB |
-| `.gitignore` | Git configuratie voor te negeren bestanden | Ja | N/A |
-| `README.md` | Project documentatie | Ja | N/A |
+### Configuration Files
+- `.env`: Environment variables configuration
+- `config-overrides.js`: Custom webpack configuration
+- `package.json`: Project dependencies and npm scripts
 
-### Frontend (src/)
+### Detailed Directory Structure
 
-| Bestand/Map | Doel | In gebruik | Data opslag |
-|-------------|------|------------|-------------|
-| `src/App.js` | Hoofdcomponent met routing en authenticatie logica | Ja | Context API |
-| `src/index.js` | Entry point voor React applicatie | Ja | N/A |
-| `src/db.js` | Database connectie logica | Ja | MongoDB |
-| `src/initMongoDB.js` | Script om MongoDB te initialiseren | Ja | MongoDB |
+#### src/components/
+- **Auth/**
+  - Bevat alle authenticatie-gerelateerde componenten
+  - Login, registratie, en 2FA verificatie componenten
+- **Dashboards/**
+  - SuperAdminDashboard.js: Dashboard voor super administrators
+  - CompanyDashboard.js: Dashboard voor bedrijfsbeheerders
+- **Forms/**
+  - Formuliercomponenten voor het aanmaken en bewerken van gebruikers, bedrijven en spelers
+- **Layouts/**
+  - Algemene layout componenten zoals navigatie en headers
+- **Players/**
+  - Componenten voor het beheren en weergeven van spelers
+- **Settings/**
+  - Componenten voor gebruikers- en systeeminstellingen
+- **Users/**
+  - Componenten voor gebruikersbeheer en profielen
 
-#### Components
+#### src/contexts/
+- **UserContext.js**
+  - Centrale staat voor gebruikersauthenticatie
+  - Beheert gebruikerssessie en autorisatie
+  - Biedt globale toegang tot gebruikersgegevens
 
-| Map | Doel | In gebruik | Data opslag |
-|-----|------|------------|-------------|
-| `src/components/Auth/` | Authenticatie componenten (login, registratie) | Ja | JWT in localStorage |
-| `src/components/Dashboards/` | Dashboard componenten voor verschillende gebruikersrollen | Ja | Data via API |
-| `src/components/Forms/` | Formulier componenten voor het aanmaken van bedrijven, spelers en gebruikers | Ja | Data via API |
-| `src/components/Layouts/` | Layout componenten zoals Navbar en ConnectionStatus | Ja | N/A |
+#### src/hooks/
+- **apiClient.js**
+  - Custom hook voor API communicatie
+  - Bevat alle API endpoints en request logica
+- **mongoClient.js**
+  - Hook voor directe MongoDB interacties
+  - Bevat database queries en mutaties
+- **useAuth.js**
+  - Hook voor authenticatie functionaliteit
+  - Vereenvoudigt toegang tot auth-gerelateerde functies
 
-#### Contexts
+#### src/services/
+- **authService.js**
+  - Authenticatie service met login/logout logica
+  - JWT token beheer
+  - Gebruikersautorisatie functies
+- **dbService.js**
+  - Database service voor algemene data operaties
+  - Connectie en query management
+- **emailService.js**
+  - Email verzendservice
+  - Templates en notificatie logica
+- **twoFactorService.js**
+  - 2FA implementatie en verificatie
+  - QR code generatie voor 2FA setup
 
-| Bestand | Doel | In gebruik | Data opslag |
-|---------|------|------------|-------------|
-| `src/contexts/UserContext.js` | Context voor gebruikersgegevens en authenticatie | Ja | Context API + localStorage |
+#### src/utils/
+- **browserUtils.js**
+  - Browser-specifieke hulpfuncties
+  - Feature detection en compatibiliteit checks
+- **passwordValidation.js**
+  - Wachtwoord validatie en sterkte checking
+  - Beveiligingsregels implementatie
+- **setupInitialAdmin.js**
+  - Script voor initiële admin setup
+  - Database initialisatie helpers
+- **createSuperAdmin.js**
+  - Hulpscript voor het aanmaken van super administrators
 
-#### Hooks
+#### src/shims/
+- **inherits.js**
+  - Polyfill voor object inheritance
+- **jsonwebtoken.js**
+  - Browser-compatibele JWT implementatie
+- **jws.js**
+  - JSON Web Signature compatibiliteit
+- **stream.js**
+  - Stream functionaliteit polyfill
 
-| Bestand | Doel | In gebruik | Data opslag |
-|---------|------|------------|-------------|
-| `src/hooks/apiClient.js` | API client voor communicatie met backend | Ja | localStorage voor caching |
-| `src/hooks/mongoClient.js` | MongoDB client voor directe database interactie | Ja | MongoDB + localStorage fallback |
-| `src/hooks/supabaseClient.js` | Supabase client (lijkt vervangen te zijn door mongoClient) | Nee | N/A |
+## 4. Database Tables
 
-#### Models
+### Models
+1. **User Model** (`src/models/User.js`)
+   - Handles user authentication and profile management
+   - Stores user credentials, 2FA settings, and permissions
 
-| Bestand | Doel | In gebruik | Data opslag |
-|---------|------|------------|-------------|
-| `src/models/Command.js` | Model voor commando's | Ja | MongoDB |
-| `src/models/Company.js` | Model voor bedrijven | Ja | MongoDB |
-| `src/models/Log.js` | Model voor logs | Ja | MongoDB |
-| `src/models/Player.js` | Model voor spelers | Ja | MongoDB |
-| `src/models/Schedule.js` | Model voor schema's | Ja | MongoDB |
-| `src/models/Update.js` | Model voor updates | Ja | MongoDB |
-| `src/models/User.js` | Model voor gebruikers | Ja | MongoDB |
+2. **Company Model** (`src/models/Company.js`)
+   - Manages company information and settings
+   - Links companies with users and players
 
-#### Services
+3. **Player Model** (`src/models/Player.js`)
+   - Stores player information and status
+   - Tracks player activities and settings
 
-| Bestand | Doel | In gebruik | Data opslag |
-|---------|------|------------|-------------|
-| `src/services/authService.js` | Authenticatie services | Ja | JWT + MongoDB |
-| `src/services/dbService.js` | Database services | Ja | MongoDB |
+4. **Command Model** (`src/models/Command.js`)
+   - Manages system commands and operations
+   - Tracks command execution and status
 
-#### Utils
+5. **Update Model** (`src/models/Update.js`)
+   - Handles system updates and changelog
+   - Tracks version information
 
-| Bestand | Doel | In gebruik | Data opslag |
-|---------|------|------------|-------------|
-| `src/utils/browserUtils.js` | Browser-specifieke hulpfuncties | Ja | N/A |
-| `src/utils/createSuperAdmin.js` | Hulpfunctie voor het aanmaken van een superadmin | Ja | MongoDB |
-| `src/utils/setupInitialAdmin.js` | Script voor het instellen van de initiële admin | Ja | MongoDB |
+6. **Log Model** (`src/models/Log.js`)
+   - System logging and activity tracking
+   - Stores important system events
 
-#### Shims
+7. **Schedule Model** (`src/models/Schedule.js`)
+   - Manages scheduled tasks and automation
+   - Stores timing and execution details
 
-| Bestand | Doel | In gebruik | Data opslag |
-|---------|------|------------|-------------|
-| `src/shims/inherits.js` | Polyfill voor inherits functionaliteit | Ja | N/A |
-| `src/shims/jsonwebtoken.js` | Polyfill voor JWT functionaliteit in browser | Ja | N/A |
-| `src/shims/jws.js` | Polyfill voor JWS functionaliteit | Ja | N/A |
-| `src/shims/stream.js` | Polyfill voor stream functionaliteit | Ja | N/A |
+## 5. Scripts
+- `npm start`: Starts the React development server
+- `npm run start:server`: Starts the Express backend server
+- `npm run dev`: Runs both frontend and backend in development mode
+- `npm run build`: Creates a production build
+- `npm run init-db`: Initializes the MongoDB database
+- `npm run create-admin`: Creates an administrator account
 
-### Public
+## 6. Dependencies
 
-| Bestand | Doel | In gebruik | Data opslag |
-|---------|------|------------|-------------|
-| `public/index.html` | HTML template voor React app | Ja | N/A |
-| `public/manifest.json` | Web app manifest voor PWA functionaliteit | Ja | N/A |
-| `public/favicon.ico` | Website favicon | Ja | N/A |
-| `public/robots.txt` | Instructies voor web crawlers | Ja | N/A |
+### Main Dependencies
+- React and React DOM for the frontend
+- Express for the backend server
+- MongoDB and Mongoose for database operations
+- WebSocket (ws) for real-time communications
+- Material-UI for the user interface
+- JWT for authentication
+- Node-cron for scheduled tasks
+- QRCode for 2FA setup
+- Various security packages (helmet, xss, etc.)
 
-## Architectuur
+### Development Dependencies
+- React Scripts and related build tools
+- Webpack and Babel for bundling and transpilation
+- Polyfills for browser compatibility
 
-### Backend
+## 7. Security Features
+- Two-factor authentication (2FA)
+- JWT-based authentication
+- XSS protection
+- Helmet security headers
+- CSRF protection
+- Secure password hashing with bcrypt
 
-De backend is gebouwd met Node.js en Express en biedt een RESTful API voor de frontend. Het gebruikt MongoDB voor data opslag met een in-memory fallback voor ontwikkeling.
+## 8. Getting Started
+1. Clone the repository
+2. Install dependencies with `npm install`
+3. Set up environment variables in `.env`
+4. Initialize the database with `npm run init-db`
+5. Create an admin account with `npm run create-admin`
+6. Start the development servers with `npm run dev`
 
-#### API Endpoints
-
-| Endpoint | Methode | Doel | Authenticatie |
-|----------|---------|------|---------------|
-| `/api/companies` | GET | Alle bedrijven ophalen | Optioneel (filtert op basis van rol) |
-| `/api/companies` | POST | Nieuw bedrijf aanmaken | Vereist (alleen superadmin) |
-| `/api/players` | GET | Alle spelers ophalen | Optioneel (filtert op basis van rol) |
-| `/api/players` | POST | Nieuwe speler aanmaken | Niet vereist |
-| `/api/auth/login` | POST | Gebruiker inloggen | Niet vereist |
-| `/api/auth/verify` | GET | Token verifiëren | Vereist |
-| `/api/auth/register` | POST | Nieuwe gebruiker registreren | Vereist (alleen admins) |
-
-#### Authenticatie
-
-De backend gebruikt JWT (JSON Web Tokens) voor authenticatie:
-- Tokens worden gegenereerd bij login en bevatten gebruikersgegevens (id, email, rol, bedrijf)
-- Tokens worden opgeslagen in localStorage in de browser
-- API requests bevatten de token in de Authorization header
-- De server verifieert de token en voegt gebruikersgegevens toe aan het request object
-
-#### Data Opslag
-
-- **MongoDB**: Primaire data opslag voor productie
-- **In-memory**: Fallback voor ontwikkeling als MongoDB niet beschikbaar is
-- **Models**: Mongoose schemas voor bedrijven, spelers, gebruikers, etc.
-
-### Frontend
-
-De frontend is gebouwd met React en gebruikt React Router voor navigatie. Het communiceert met de backend via de API client.
-
-#### Componenten
-
-- **Auth**: Componenten voor authenticatie (login, registratie)
-- **Dashboards**: Dashboards voor verschillende gebruikersrollen
-- **Forms**: Formulieren voor het aanmaken van bedrijven, spelers en gebruikers
-- **Layouts**: Layout componenten zoals Navbar en ConnectionStatus
-
-#### State Management
-
-- **Context API**: UserContext voor gebruikersgegevens en authenticatie
-- **localStorage**: Caching van data en opslag van JWT token
-- **API Client**: Communicatie met backend met offline fallback
-
-#### Routing
-
-- **React Router**: Client-side routing
-- **Protected Routes**: Routes die authenticatie vereisen
-- **Role-based Access**: Toegang tot routes op basis van gebruikersrol
-
-## Installatie en Opstarten
-
-### Vereisten
-
-- Node.js (v14 of hoger)
-- MongoDB (lokaal of remote)
-
-### Installatie
-
-1. Clone de repository
-2. Installeer dependencies:
-   ```
-   npm install
-   ```
-
-3. Maak een `.env` bestand aan in de root met de volgende variabelen:
-   ```
-   PORT=5001
-   MONGO_URI=mongodb://localhost:27017/player-dashboard
-   JWT_SECRET=your_secret_key_here
-   ```
-
-### Database Setup
-
-1. Zorg ervoor dat MongoDB draait
-2. Initialiseer de database:
-   ```
-   npm run init-db
-   ```
-
-3. Maak een admin gebruiker aan:
-   ```
-   npm run create-admin
-   ```
-
-### Opstarten
-
-1. Start de ontwikkelserver:
-   ```
-   npm run dev
-   ```
-
-2. Of start frontend en backend apart:
-   ```
-   npm run start        # Frontend
-   npm run start:server # Backend
-   ```
-
-3. Open de applicatie in de browser:
-   ```
-   http://localhost:3000
-   ```
-
-## Ontwikkelingsnotities
-
-- De applicatie heeft een offline modus met localStorage caching
-- MongoDB verbindingsfouten worden opgevangen met een in-memory fallback
-- De frontend controleert regelmatig de verbinding met de backend
-- Gebruikersrollen bepalen welke functionaliteit beschikbaar is
-- JWT tokens worden gebruikt voor authenticatie en autorisatie
-
-## Gebruikersrollen
-
-1. **Superadmin**:
-   - Kan alle bedrijven zien en beheren
-   - Kan nieuwe bedrijven aanmaken
-   - Kan nieuwe gebruikers aanmaken (alle rollen)
-   - Kan nieuwe spelers aanmaken voor elk bedrijf
-
-2. **Bedrijfsadmin**:
-   - Kan alleen eigen bedrijf zien en beheren
-   - Kan nieuwe gebruikers aanmaken (alleen bedrijfsadmin en user)
-   - Kan nieuwe spelers aanmaken voor eigen bedrijf
-
-3. **User**:
-   - Kan alleen eigen bedrijf zien
-   - Beperkte functionaliteit
+## 9. Unused Files
+- `x laatste versie met alle fixes.zip`: Backup archive, niet in gebruik
+- `x nieuste versie van de code.zip`: Backup archive, niet in gebruik
+- `src/components/Dashboards/CompaniesDashboard.js`: Vervangen door nieuwe dashboard implementatie
+- `src/hooks/supabaseClient.js`: Oude database client, vervangen door MongoDB
+- `src/middleware/`: Lege directory, niet in gebruik

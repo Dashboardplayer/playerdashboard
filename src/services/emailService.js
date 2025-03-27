@@ -178,11 +178,11 @@ Het Display Beheer Team
 export const sendRegistrationInvitationEmail = async (to, registrationToken, role, companyName) => {
   if (isBrowser) {
     console.log('Browser mock: Would send registration invitation email to:', to);
-    console.log('Registration link would be:', `${window.location.origin}/register?token=${registrationToken}`);
+    console.log('Registration link would be:', `${window.location.origin}/complete-registration?token=${registrationToken}`);
     return { success: true };
   }
 
-  const registrationLink = `http://localhost:5002/register?token=${registrationToken}`;
+  const registrationLink = `http://localhost:5002/complete-registration?token=${registrationToken}`;
   const subject = 'Welkom bij Display Beheer - Activeer je account';
   const text = `
 Beste toekomstige gebruiker,

@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import { browserAuth } from '../utils/browserUtils.js';
 
 // Check if we're in a browser environment
@@ -57,6 +58,23 @@ const userSchema = !isBrowser ? new mongoose.Schema({
   updatedAt: {
     type: Date,
     default: Date.now
+  },
+  // 2FA fields
+  twoFactorEnabled: {
+    type: Boolean,
+    default: false
+  },
+  twoFactorSecret: {
+    type: String,
+    select: false // This ensures the secret is not returned in normal queries
+  },
+  twoFactorTempSecret: {
+    type: String,
+    select: false // Temporary secret used during 2FA setup
+  },
+  twoFactorPendingSetup: {
+    type: Boolean,
+    default: false
   }
 }) : null;
 
@@ -130,14 +148,14 @@ if (!isBrowser && userSchema) {
 
   // Method to generate registration token
   userSchema.methods.generateRegistrationToken = function() {
-    this.registrationToken = crypto.randomBytes(32).toString('hex');
+    this.registrationToken = crypto.randomBytes(20).toString('hex'); // 20 bytes = 40 hex chars
     this.registrationTokenExpires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
     return this.registrationToken;
   };
 
   // Method to generate password reset token
   userSchema.methods.generateResetToken = function() {
-    this.resetPasswordToken = crypto.randomBytes(32).toString('hex');
+    this.resetPasswordToken = crypto.randomBytes(20).toString('hex'); // 20 bytes = 40 hex chars
     this.resetPasswordExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
     return this.resetPasswordToken;
   };
@@ -183,6 +201,16 @@ if (!isBrowser) {
       console.log('Browser mock: User.findByEmail called with', email);
       // Return null in browser environment since we'll use authAPI instead
       return null;
+    },
+
+    generateResetToken: function() {
+      // In browser environment, generate a mock token
+      const mockToken = Array.from(crypto.getRandomValues(new Uint8Array(20)))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+      this.resetPasswordToken = mockToken;
+      this.resetPasswordExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+      return mockToken;
     }
   };
 }

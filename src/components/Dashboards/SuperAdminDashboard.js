@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { mongoClient } from '../../hooks/mongoClient';
-import { userService } from '../../services/dbService';
+import { userAPI, companyAPI, playerAPI } from '../../hooks/apiClient';
 import {
   Card,
   CardContent,
@@ -44,7 +43,7 @@ import {
 } from '@mui/icons-material';
 import { Link } from 'react-router-dom';
 import PlayerManagement from '../Players/PlayerManagement';
-import { companyAPI } from '../../hooks/apiClient';
+import { ablyService } from '../../services/ablyService';
 
 function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard, hideHeader }) {
   const [currentTab, setCurrentTab] = useState(0);
@@ -87,11 +86,11 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
       setLoading(true);
       setError('');
 
-      // Fetch all data in parallel
+      // Fetch all data in parallel using API clients
       const [playersResult, companiesResult, usersResult] = await Promise.all([
-        mongoClient.from('players').select('*'),
+        playerAPI.getAll(),
         companyAPI.getAll(),
-        userService.getAll()
+        userAPI.getAll()
       ]);
 
       // Check for errors
@@ -105,6 +104,21 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
         companies: companiesResult.data || [],
         users: usersResult.data || []
       });
+
+      // Update individual states
+      setPlayers(playersResult.data || []);
+      setCompanies(companiesResult.data || []);
+      setUsers(usersResult.data || []);
+
+      // Update company options
+      if (companiesResult.data) {
+        const formattedCompanies = companiesResult.data.map(company => ({
+          company_id: company.id || company.company_id,
+          company_name: company.name || company.company_name
+        }));
+        setCompanyOptions(formattedCompanies);
+      }
+
     } catch (err) {
       console.error('Error fetching dashboard data:', err);
       setError(err.message || 'Er is een onverwachte fout opgetreden.');
@@ -201,7 +215,7 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
       console.log('Fetching users...');
       
       // Use userService instead of mongoClient directly
-      const { data, error } = await userService.getAll();
+      const { data, error } = await userAPI.getAll();
       
       console.log('Fetched users data:', data);
       console.log('Fetch error:', error);
@@ -261,11 +275,10 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
         return;
       }
       
-      // Update user's company in MongoDB
-      const { error: updateError } = await mongoClient
-        .from('profiles')
-        .update({ company_id: userCompanies[userId] })
-        .eq('id', userId);
+      // Update user's company using userAPI
+      const { error: updateError } = await userAPI.update(userId, { 
+        company_id: userCompanies[userId] 
+      });
       
       if (updateError) {
         console.error('Error updating user company:', updateError);
@@ -320,11 +333,10 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
         return;
       }
       
-      // Update player URL in MongoDB
-      const { error: updateError } = await mongoClient
-        .from('players')
-        .update({ current_url: newUrl })
-        .eq('id', playerId);
+      // Update player URL using playerAPI
+      const { error: updateError } = await playerAPI.update(playerId, { 
+        current_url: newUrl 
+      });
       
       if (updateError) {
         console.error('Error updating player URL:', updateError);
@@ -348,11 +360,10 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
         return;
       }
       
-      // Update player company in MongoDB
-      const { error: updateError } = await mongoClient
-        .from('players')
-        .update({ company_id: companies[playerId] })
-        .eq('id', playerId);
+      // Update player company using playerAPI
+      const { error: updateError } = await playerAPI.update(playerId, { 
+        company_id: companies[playerId] 
+      });
       
       if (updateError) {
         console.error('Error updating player company:', updateError);
@@ -370,22 +381,11 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
 
   const triggerCommand = async (playerId, commandType) => {
     try {
-      // Insert command into MongoDB
-      const { error: commandError } = await mongoClient.from('commands').insert([
-        {
-          player_id: playerId,
-          command_type: commandType,
-          payload: {},
-          status: 'pending',
-          createdAt: new Date()
-        }
-      ]);
-      
-      if (commandError) {
-        console.error('Error sending command:', commandError);
-        setError(`Fout bij verzenden commando: ${commandError.message}`);
-        return;
-      }
+      // Send command using Ably
+      await ablyService.sendCommand(playerId, {
+        type: commandType.toLowerCase(),
+        payload: {}
+      });
       
       setSuccess(`Commando ${commandType} succesvol verzonden!`);
     } catch (err) {
@@ -424,11 +424,11 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
           return;
         }
 
-        console.log('Calling userService.delete with ID:', userId);
-        const { error } = await userService.delete(userId);
+        console.log('Calling userAPI.delete with ID:', userId);
+        const { error } = await userAPI.delete(userId);
         
         if (error) {
-          console.error('Error from userService.delete:', error);
+          console.error('Error from userAPI.delete:', error);
           setError(`Fout bij het verwijderen van de gebruiker: ${error}`);
           handleCloseDeleteDialog();
           return;
@@ -449,10 +449,7 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
         console.log('Refreshing users list');
         await fetchUsers();
       } else if (deleteType === 'player') {
-        const { error } = await mongoClient
-          .from('players')
-          .delete()
-          .eq('_id', itemToDelete._id);
+        const { error } = await playerAPI.delete(itemToDelete._id);
         
         if (error) {
           console.error('Error deleting player:', error);
@@ -462,15 +459,8 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
 
         // Remove player from local state
         setPlayers(prevPlayers => prevPlayers.filter(p => p._id !== itemToDelete._id));
-      }
-
-      setSuccess(`${deleteType === 'user' ? 'Gebruiker' : 'Player'} succesvol verwijderd!`);
-      handleCloseDeleteDialog();
-      
-      // Force a refresh of the data to ensure sync with backend
-      if (deleteType === 'user') {
-        await fetchUsers();
-      } else {
+        setSuccess('Player succesvol verwijderd!');
+        handleCloseDeleteDialog();
         await fetchDashboardData();
       }
     } catch (err) {

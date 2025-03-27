@@ -6,12 +6,14 @@ import LoginPage from './components/Auth/LoginPage.js';
 import ForgotPassword from './components/Auth/ForgotPassword.js';
 import ResetPassword from './components/Auth/ResetPassword.js';
 import Settings from './components/Settings/Settings.js';
+import SignUp from './components/Auth/SignUp.js';
 
 // Dashboards
 import SuperAdminDashboard from './components/Dashboards/SuperAdminDashboard.js';
 import CompanyDashboard from './components/Dashboards/CompanyDashboard.js';
 import CompaniesDashboard from './components/Dashboards/CompaniesDashboard.js';
 import UserManagement from './components/Users/UserManagement.js';
+import PerformanceTab from './components/Admin/PerformanceTab.js';
 
 // Forms
 import CreateUser from './components/Forms/CreateUser.js';
@@ -103,17 +105,26 @@ function AppContent() {
         console.log('checkSession started...');
         const { data: userData, error: userError } = await authAPI.getCurrentUser();
         
-        console.log('userData:', userData, 'userError:', userError);
+        console.log('Session check result:', { 
+          hasUser: !!userData?.user,
+          error: userError 
+        });
   
-        // If we have user data from the token, set it as profile
+        // If we have user data, set it as profile
         if (userData?.user) {
-          console.log('User authenticated from token:', userData.user);
+          console.log('Setting user profile:', {
+            id: userData.user.id,
+            email: userData.user.email,
+            role: userData.user.role
+          });
           setProfile(userData.user);
-        } else if (userError) {
-          console.log('User error:', userError);
+        } else {
+          console.log('No valid user data found');
+          setProfile(null);
         }
       } catch (error) {
         console.error('Session check error:', error);
+        setProfile(null);
       } finally {
         console.log('checkSession finished.');
         setLoading(false);
@@ -159,6 +170,10 @@ function AppContent() {
     {
       path: '/reset-password',
       element: <ResetPassword />,
+    },
+    {
+      path: '/complete-registration',
+      element: <SignUp />,
     },
     {
       path: '/superadmin-dashboard',
@@ -224,6 +239,15 @@ function AppContent() {
         <ProtectedRoute allowedRoles={['superadmin', 'bedrijfsadmin']}>
           <NavBar />
           <UserManagement />
+        </ProtectedRoute>
+      ),
+    },
+    {
+      path: '/performance',
+      element: (
+        <ProtectedRoute allowedRoles={['superadmin']}>
+          <NavBar />
+          <PerformanceTab />
         </ProtectedRoute>
       ),
     },

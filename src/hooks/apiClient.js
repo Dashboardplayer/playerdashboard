@@ -52,71 +52,40 @@ const checkAndClearCacheIfNeeded = () => {
   return true;
 };
 
-// Helper function to handle fetch requests with timeout
-const fetchWithAuth = async (endpoint, options = {}, timeout = 5000) => {
-  // Get auth token from localStorage and check expiration
-  const token = localStorage.getItem('authToken');
-  
-  // Skip token check for public auth endpoints
-  const isPublicEndpoint = endpoint.includes('/auth/login') || endpoint.includes('/auth/register');
-  
-  if (!isPublicEndpoint) {
-    if (!token) {
-      return { data: null, error: 'No token provided', useBackup: false };
-    }
-    
-    if (!checkAndClearCacheIfNeeded()) {
-      return { data: null, error: 'Authentication expired', useBackup: false };
-    }
-  }
-  
-  // Set default headers
-  const headers = {
-    'Content-Type': 'application/json',
-    ...options.headers
-  };
-  
-  // Add auth token if available and endpoint is not public auth
-  if (token && !isPublicEndpoint) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-  
-  // Merge options
-  const fetchOptions = {
-    ...options,
-    headers
-  };
-  
+// Fetch with authentication and error handling
+const fetchWithAuth = async (endpoint, options = {}) => {
   try {
-    // Create a promise that rejects in <timeout> milliseconds
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('Request timed out')), timeout);
+    const user = browserAuth.getUser();
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(user?.token ? { 'Authorization': `Bearer ${user.token}` } : {}),
+      ...options.headers
+    };
+
+    const response = await fetch(`${API_URL}${endpoint}`, {
+      ...options,
+      headers
     });
-    
-    // Create the fetch promise
-    const fetchPromise = fetch(`${API_URL}${endpoint}`, fetchOptions);
-    
-    // Race the fetch against the timeout
-    const response = await Promise.race([fetchPromise, timeoutPromise]);
+
     const data = await response.json();
+    console.log(`API Response (${endpoint}):`, { status: response.status, data });
+
+    // Handle 401 Unauthorized
+    if (response.status === 401) {
+      browserAuth.clearAuth();
+      window.location.href = '/login';
+      return { error: data.error || 'Unauthorized access' };
+    }
     
     if (!response.ok) {
-      // Check if the error is due to authentication
-      if (response.status === 401 || response.status === 403) {
-        // Only clear cache and remove token if not a public endpoint
-        if (!isPublicEndpoint) {
-          clearAllCache();
-          localStorage.removeItem('authToken');
-          window.dispatchEvent(new CustomEvent('auth_expired'));
-        }
-      }
-      return { data: null, error: data.error || 'An error occurred', useBackup: false };
+      console.error(`API Error (${endpoint}):`, { status: response.status, data });
+      return { error: data.error || `API request failed with status ${response.status}` };
     }
-    
-    return { data, error: null, useBackup: false };
+
+    return { data, error: null };
   } catch (error) {
-    console.error(`Error in fetch to ${endpoint}:`, error);
-    return { data: null, error: error.message, useBackup: false };
+    console.error(`API Error (${endpoint}):`, error);
+    return { error: error.message || 'Network error', useBackup: true };
   }
 };
 
@@ -136,8 +105,14 @@ const storeCachedCompanies = (companies) => {
 };
 
 // WebSocket connection
-const WS_URL = process.env.REACT_APP_WS_URL || 'ws://localhost:3000';
+const WS_URL = process.env.NODE_ENV === 'production' 
+  ? `wss://${window.location.host}`
+  : `ws://localhost:5001`;
+
 let ws = null;
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 5;
+const RECONNECT_DELAY = 3000; // 3 seconds
 
 // Cache storage with timestamps
 const cache = {
@@ -148,82 +123,83 @@ const cache = {
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
 // Initialize WebSocket connection
-const initializeWebSocket = () => {
-  if (ws) return;
-
-  const token = localStorage.getItem('authToken');
-  if (!token) {
-    console.log('No auth token available for WebSocket connection');
-    return;
-  }
-
+function initializeWebSocket() {
   try {
-    ws = new WebSocket(WS_URL, [token]);
-  } catch (error) {
-    console.error('Failed to create WebSocket connection:', error);
-    return;
-  }
-
-  // Set up heartbeat response
-  let heartbeatInterval = null;
-
-  ws.onopen = () => {
-    console.log('WebSocket connected');
+    const user = browserAuth.getUser();
     
-    // Start heartbeat checks
-    heartbeatInterval = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'heartbeat' }));
-      }
-    }, 25000); // Slightly less than server's interval
-  };
-
-  ws.onmessage = (event) => {
-    try {
-      const message = JSON.parse(event.data);
-      
-      // Validate received message
-      if (!message || !message.type) {
-        console.error('Invalid message received:', message);
-        return;
-      }
-      
-      handleWebSocketMessage(message);
-    } catch (error) {
-      console.error('Error parsing WebSocket message:', error);
-    }
-  };
-
-  ws.onclose = (event) => {
-    console.log('WebSocket disconnected:', event.code, event.reason);
-    // Clear heartbeat interval
-    if (heartbeatInterval) {
-      clearInterval(heartbeatInterval);
-      heartbeatInterval = null;
-    }
-    
-    // If closed due to authentication failure, don't retry
-    if (event.code === 4401) {
-      console.log('WebSocket connection closed due to authentication failure');
+    if (!user || !user.token) {
+      console.log('No valid auth token or user available for WebSocket connection');
       return;
     }
-    
-    // Attempt to reconnect after 5 seconds
-    setTimeout(() => {
-      ws = null;
-      initializeWebSocket();
-    }, 5000);
-  };
 
-  ws.onerror = (error) => {
-    console.error('WebSocket error:', error);
-    // Clear heartbeat on error
-    if (heartbeatInterval) {
-      clearInterval(heartbeatInterval);
-      heartbeatInterval = null;
-    }
-  };
-};
+    const protocols = [`jwt.${user.token}`];
+    ws = new WebSocket(WS_URL, protocols);
+    
+    ws.onopen = () => {
+      console.log('WebSocket connected successfully');
+      reconnectAttempts = 0; // Reset attempts on successful connection
+      
+      // Send an initial authentication message with additional security measures
+      ws.send(JSON.stringify({ 
+        type: 'authenticate',
+        token: user.token,
+        timestamp: Date.now(),
+        clientId: crypto.randomUUID(),
+        userId: user.id
+      }));
+    };
+
+    ws.onclose = async (event) => {
+      console.log('WebSocket disconnected:', event.code);
+      
+      // Check if we have a valid token before attempting to reconnect
+      const currentUser = browserAuth.getUser();
+      
+      if (!currentUser || !currentUser.token) {
+        console.log('No valid session for reconnection');
+        return;
+      }
+
+      if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+        setTimeout(() => {
+          reconnectAttempts++;
+          console.log(`Attempting to reconnect (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`);
+          initializeWebSocket();
+        }, RECONNECT_DELAY * Math.pow(2, reconnectAttempts)); // Exponential backoff
+      } else {
+        console.log('Max reconnection attempts reached');
+        // Reset reconnection attempts after a longer delay
+        setTimeout(() => {
+          reconnectAttempts = 0;
+          initializeWebSocket();
+        }, RECONNECT_DELAY * 5);
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.log('WebSocket error occurred:', error);
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        
+        // Handle authentication errors
+        if (data.type === 'auth_error') {
+          console.log('WebSocket authentication error:', data.message);
+          ws.close();
+          return;
+        }
+        
+        handleWebSocketMessage(data);
+      } catch (error) {
+        console.error('Error handling WebSocket message:', error);
+      }
+    };
+  } catch (error) {
+    console.error('Error initializing WebSocket');
+  }
+}
 
 // Re-initialize WebSocket when auth token changes
 window.addEventListener('storage', (event) => {
@@ -233,13 +209,14 @@ window.addEventListener('storage', (event) => {
       ws = null;
     }
     if (event.newValue) {
+      reconnectAttempts = 0; // Reset attempts when token changes
       initializeWebSocket();
     }
   }
 });
 
-// Initialize WebSocket on import if token exists
-if (localStorage.getItem('authToken')) {
+// Initialize WebSocket on import if we have valid auth
+if (browserAuth.getUser()) {
   initializeWebSocket();
 }
 
@@ -401,12 +378,24 @@ export const playerAPI = {
 
     return deduplicateRequest(cacheKey, async () => {
       try {
+        const user = browserAuth.getUser();
+        
+        if (!user || !user.token) {
+          console.error('No authentication token or user found');
+          throw new Error('Authentication required');
+        }
+
+        // If user is not superadmin, force filter by their company_id
+        if (user.role !== 'superadmin' && !companyId) {
+          companyId = user.company_id;
+        }
+
         const url = companyId ? `${API_URL}/players?company_id=${companyId}` : `${API_URL}/players`;
         const response = await fetch(url, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+            'Authorization': `Bearer ${user.token}`
           }
         });
 
@@ -416,14 +405,19 @@ export const playerAPI = {
 
         const data = await response.json();
         
+        // Filter data by company_id if user is not superadmin
+        const filteredData = user.role === 'superadmin'
+          ? data
+          : data.filter(player => player.company_id === user.company_id);
+
         if (!data.error) {
           cache.players = {
-            data: data,
+            data: filteredData,
             timestamp: Date.now()
           };
         }
         
-        return { data, error: null };
+        return { data: filteredData, error: null };
       } catch (error) {
         console.error('Error fetching players:', error);
         return { data: null, error: error.message };
@@ -433,21 +427,31 @@ export const playerAPI = {
   
   create: async (playerData) => {
     try {
-      console.log('Creating player with data:', playerData);
-      const token = localStorage.getItem('authToken');
+      console.log('Creating player with data:', {
+        name: playerData.name,
+        company_id: playerData.company_id
+      });
       
-      if (!token) {
-        console.error('No authentication token found');
+      const currentUser = browserAuth.getUser();
+      
+      if (!currentUser || !currentUser.token) {
+        console.error('No authentication token or user found');
         throw new Error('Authentication required');
       }
+
+      // If company_id is not provided, use the current user's company_id
+      const finalPlayerData = {
+        ...playerData,
+        company_id: playerData.company_id || currentUser.company_id
+      };
 
       const response = await fetch(`${API_URL}/players`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${currentUser.token}`
         },
-        body: JSON.stringify(playerData)
+        body: JSON.stringify(finalPlayerData)
       });
 
       const data = await response.json();
@@ -457,7 +461,12 @@ export const playerAPI = {
         throw new Error(data.error || 'Failed to create player');
       }
 
-      console.log('Player created successfully:', data);
+      console.log('Player created successfully:', {
+        id: data.id,
+        name: data.name,
+        company_id: data.company_id
+      });
+      
       return { data };
     } catch (error) {
       console.error('Error in playerAPI.create:', error);
@@ -467,11 +476,18 @@ export const playerAPI = {
   
   update: async (playerId, updates) => {
     try {
+      const user = browserAuth.getUser();
+      
+      if (!user || !user.token) {
+        console.error('No authentication token or user found');
+        throw new Error('Authentication required');
+      }
+
       const response = await fetch(`${API_URL}/players/${playerId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+          'Authorization': `Bearer ${user.token}`
         },
         body: JSON.stringify(updates)
       });
@@ -499,11 +515,18 @@ export const playerAPI = {
 
   createCommand: async (playerId, commandData) => {
     try {
+      const user = browserAuth.getUser();
+      
+      if (!user || !user.token) {
+        console.error('No authentication token or user found');
+        throw new Error('Authentication required');
+      }
+
       const response = await fetch(`${API_URL}/players/${playerId}/commands`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+          'Authorization': `Bearer ${user.token}`
         },
         body: JSON.stringify({
           command_type: commandData.type,
@@ -526,8 +549,10 @@ export const playerAPI = {
 
   delete: async (playerId) => {
     try {
-      const token = localStorage.getItem('authToken');
-      if (!token) {
+      const user = browserAuth.getUser();
+      
+      if (!user || !user.token) {
+        console.error('No authentication token or user found');
         throw new Error('Authentication required');
       }
 
@@ -536,7 +561,7 @@ export const playerAPI = {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${user.token}`
         }
       });
 
@@ -557,7 +582,7 @@ export const playerAPI = {
       // Clear all cached data to ensure fresh state
       clearAllCache();
       
-      return { error: null };
+      return { data: { success: true }, error: null };
     } catch (error) {
       console.error('Error deleting player:', error);
       return { error: error.message };
@@ -598,15 +623,18 @@ export const userAPI = {
       try {
         console.log('userAPI.getAll: Starting fetch', { companyId });
         const url = companyId ? `${API_URL}/users?company_id=${companyId}` : `${API_URL}/users`;
-        
-        const token = localStorage.getItem('authToken');
-        console.log('userAPI.getAll: Using auth token:', token ? 'Present' : 'Missing');
+        const user = browserAuth.getUser();
 
-        const response = await fetch(url, {
+        // If user is not superadmin, force filter by their company_id
+        if (user && user.role !== 'superadmin' && !companyId) {
+          companyId = user.company_id;
+        }
+
+        const response = await fetch(companyId ? `${API_URL}/users?company_id=${companyId}` : `${API_URL}/users`, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
+            'Authorization': `Bearer ${user?.token}`
           }
         });
 
@@ -617,14 +645,19 @@ export const userAPI = {
         const data = await response.json();
         console.log('userAPI.getAll: Received data:', data);
         
-        // Update cache with new data
+        // Filter data by company_id if user is not superadmin
+        const filteredData = user?.role === 'superadmin' 
+          ? data 
+          : data.filter(u => u.company_id === user.company_id);
+
+        // Update cache with filtered data
         if (!cache.users) cache.users = {};
         cache.users = {
-          data: data,
+          data: filteredData,
           timestamp: Date.now()
         };
         
-        return { data, error: null };
+        return { data: filteredData, error: null };
       } catch (error) {
         console.error('userAPI.getAll: Error:', error);
         return { data: null, error: error.message };
@@ -705,47 +738,29 @@ export const userAPI = {
     return result;
   },
 
-  deleteUser: async (userId) => {
+  delete: async (userId) => {
     try {
-      console.log('apiClient: Starting deleteUser with ID:', userId);
-      
-      if (!userId) {
-        console.error('apiClient: No user ID provided for deletion');
-        return { error: 'No user ID provided' };
-      }
-
-      const token = localStorage.getItem('authToken');
-      console.log('apiClient: Using auth token:', token ? 'Present' : 'Missing');
-
-      const response = await fetch(`${API_URL}/users/${userId}`, {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        }
+      console.log('Deleting user with ID:', userId);
+      const result = await fetchWithAuth(`/users/${userId}`, {
+        method: 'DELETE'
       });
 
-      console.log('apiClient: Delete response status:', response.status);
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
-        console.error('apiClient: Error deleting user:', errorData);
-        return { error: errorData.message || `Failed to delete user: ${response.status}` };
+      if (result.error) {
+        console.error('Error deleting user:', result.error);
+        return { error: result.error };
       }
 
-      console.log('apiClient: User deleted successfully');
-      
-      // Only update cache if the API call was successful
+      // Update cache by removing the deleted user
       const cachedUsers = getCachedUsers();
-      const filteredUsers = cachedUsers.filter(u => (u.id || u._id) !== userId);
-      storeCachedUsers(filteredUsers);
-      
-      return { data: true, error: null };
+      const updatedUsers = cachedUsers.filter(u => u.id !== userId && u._id !== userId);
+      storeCachedUsers(updatedUsers);
+
+      return { data: { success: true }, error: null };
     } catch (error) {
-      console.error('apiClient: Error in deleteUser:', error);
-      return { error: error.message || 'Failed to delete user' };
+      console.error('Error deleting user:', error);
+      return { error: error.message };
     }
-  }
+  },
 };
 
 // API functions for authentication
@@ -757,50 +772,30 @@ export const authAPI = {
         body: JSON.stringify(credentials)
       });
       
-      // If API call fails, simulate login for testing (development only)
-      if (result.useBackup) {
-        console.log('Using mock login as backup');
-        
-        // Only allow the default admin to login in backup mode
-        if (credentials.email === 'dashboardplayer@gmail.com' && 
-            credentials.password === 'Nummer123') {
-          
-          // Create a mock token with timestamp
-          const mockToken = `mock_token_${Date.now()}`;
-          
-          // Store user info using browserAuth
-          const mockUser = {
-            id: 'mock_1',
-            email: credentials.email,
-            role: 'superadmin',
-            company_id: null
-          };
-          browserAuth.setAuth(mockToken, mockUser);
-          
-          return { 
-            data: { 
-              user: mockUser,
-              session: { access_token: mockToken }
-            }, 
-            error: null 
-          };
-        } else {
-          return { data: null, error: 'Invalid credentials' };
-        }
-      }
-      
       // Handle API error response
       if (result.error) {
         return { data: null, error: result.error };
       }
       
+      // Handle 2FA response
+      if (result.data?.requires2FA) {
+        return {
+          data: {
+            requires2FA: true,
+            tempToken: result.data.tempToken
+          },
+          error: null
+        };
+      }
+      
       // If successful login through API, store token and user info
-      if (result.data?.token && result.data?.user) {
-        browserAuth.setAuth(result.data.token, result.data.user);
+      if (result.data?.token && result.data?.refreshToken && result.data?.user) {
+        browserAuth.setAuth(result.data.token, result.data.refreshToken, result.data.user);
         return {
           data: {
             user: result.data.user,
-            session: { access_token: result.data.token }
+            token: result.data.token,
+            refreshToken: result.data.refreshToken
           },
           error: null
         };
@@ -827,28 +822,74 @@ export const authAPI = {
     return result;
   },
   
+  completeRegistration: async (data) => {
+    try {
+      console.log('Completing registration for user:', { 
+        token: data.token ? '***' : undefined,
+        email: data.email
+      });
+
+      const response = await fetch(`${API_URL}/auth/complete-registration`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${data.token}` // Include the registration token
+        },
+        body: JSON.stringify({
+          password: data.password,
+          token: data.token
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+        console.error('Registration completion failed:', errorData);
+        return { error: errorData.message || `Failed to complete registration: ${response.status}` };
+      }
+
+      const result = await response.json();
+      
+      // If registration completion was successful, store the token
+      if (result.token && result.user) {
+        browserAuth.setAuth(result.token, result.user);
+        console.log('Registration completed successfully for:', {
+          id: result.user.id,
+          email: result.user.email,
+          role: result.user.role
+        });
+      }
+      
+      return { data: result, error: null };
+    } catch (error) {
+      console.error('Error completing registration:', error);
+      return { error: error.message || 'Failed to complete registration' };
+    }
+  },
+  
   logout: async () => {
-    // Remove token from localStorage
-    localStorage.removeItem('authToken');
-    localStorage.removeItem('mock_user');
+    browserAuth.clearAuth();
+    if (ws) {
+      ws.close();
+      ws = null;
+    }
     return { error: null };
   },
   
   getCurrentUser: async () => {
     try {
-      const token = localStorage.getItem('authToken');
+      // First try to get user from browser storage
+      const user = browserAuth.getUser();
       
-      if (!token) {
+      if (!user) {
         return { data: null, error: null };
       }
 
-      // First try to get user from browser storage
-      const user = browserAuth.getUser();
       if (user) {
+        // If we have both token and user in storage, return the user
         return { data: { user }, error: null };
       }
 
-      // If no user in storage, verify token with server
+      // Only verify with server if we have a token but no user
       const result = await fetchWithAuth('/auth/verify', {
         method: 'GET'
       });
@@ -856,6 +897,11 @@ export const authAPI = {
       if (result.error) {
         browserAuth.clearAuth();
         return { data: null, error: result.error };
+      }
+
+      // Store the user data if we got it from the server
+      if (result.data?.user) {
+        browserAuth.setAuth(result.data.token, result.data.user);
       }
 
       return result;
@@ -995,25 +1041,27 @@ export const authAPI = {
 
   registerInvitation: async (userData) => {
     try {
-      console.log('Sending registration invitation with data:', userData);
-      const token = localStorage.getItem('authToken');
+      console.log('Sending registration invitation with data:', {
+        email: userData.email,
+        role: userData.role,
+        company_id: userData.company_id || userData.sender_company_id
+      });
       
-      if (!token) {
-        console.error('No authentication token found');
+      const user = browserAuth.getUser();
+      
+      if (!user || !user.token) {
+        console.error('No authentication token or user found');
         return { data: null, error: 'Authentication required' };
       }
 
       const result = await fetchWithAuth('/auth/register-invitation', {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        },
         body: JSON.stringify({
           email: userData.email,
           role: userData.role,
-          company_id: userData.company_id || userData.sender_company_id, // Use sender's company if not specified
-          sender_role: userData.sender_role || 'bedrijfsadmin', // Default to bedrijfsadmin if not specified
-          sender_company_id: userData.sender_company_id
+          company_id: userData.company_id || userData.sender_company_id, // Use current user's company if not specified
+          sender_role: userData.role,
+          sender_company_id: userData.company_id || userData.sender_company_id
         })
       });
 
@@ -1022,11 +1070,16 @@ export const authAPI = {
         return { data: null, error: result.error };
       }
 
-      console.log('Registration invitation sent successfully:', result.data);
+      console.log('Registration invitation sent successfully:', {
+        email: result.data.email,
+        role: result.data.role,
+        company_id: result.data.company_id
+      });
+      
       return result;
     } catch (error) {
       console.error('Registration invitation error:', error);
-      return { data: null, error: 'Er is een onverwachte fout opgetreden bij het versturen van de uitnodiging' };
+      return { data: null, error: 'Er is een fout opgetreden bij het versturen van de uitnodiging' };
     }
   },
 
@@ -1045,14 +1098,14 @@ export const authAPI = {
   updatePassword: async ({ currentPassword, newPassword }) => {
     try {
       console.log('Attempting to update password at:', `${API_URL}/users/update-password`);
-      const token = localStorage.getItem('authToken');
-      console.log('Auth token present:', !!token);
+      const user = browserAuth.getUser();
+      console.log('Auth token present:', !!user?.token);
       
       const response = await fetch(`${API_URL}/users/update-password`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${user?.token}`
         },
         body: JSON.stringify({
           currentPassword,
@@ -1084,6 +1137,192 @@ export const authAPI = {
       return { error: 'Er is een onverwachte fout opgetreden' };
     }
   },
+
+  // 2FA Methods
+  generate2FASecret: async () => {
+    try {
+      const result = await fetchWithAuth('/auth/2fa/generate', {
+        method: 'POST'
+      });
+
+      console.log('2FA secret generation response:', result);
+
+      if (result.error) {
+        return { error: result.error };
+      }
+
+      // Make sure we have both the secret and QR code
+      if (!result.data?.secret || !result.data?.qrCode) {
+        console.error('Invalid 2FA secret response:', result);
+        return { error: 'Incomplete response from server' };
+      }
+
+      return {
+        data: {
+          secret: result.data.secret,
+          qrCode: result.data.qrCode
+        },
+        error: null
+      };
+    } catch (error) {
+      console.error('Error generating 2FA secret:', error);
+      return { error: error.message };
+    }
+  },
+
+  verify2FASetup: async (token) => {
+    try {
+      const result = await fetchWithAuth('/auth/2fa/verify-setup', {
+        method: 'POST',
+        body: JSON.stringify({ token })
+      });
+
+      if (result.error) {
+        return { error: result.error };
+      }
+
+      return result;
+    } catch (error) {
+      console.error('Error verifying 2FA setup:', error);
+      return { error: error.message };
+    }
+  },
+
+  verify2FA: async (verificationData) => {
+    try {
+      const response = await fetch(`${API_URL}/auth/2fa/verify-login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(verificationData)
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return { error: data.error || 'Failed to verify 2FA' };
+      }
+
+      // If verification successful, store the final token and user info
+      if (data.token && data.user) {
+        browserAuth.setAuth(data.token, data.user);
+      }
+
+      return { data, error: null };
+    } catch (error) {
+      console.error('2FA verification error:', error);
+      return { error: error.message };
+    }
+  },
+
+  disable2FA: async (token) => {
+    try {
+      const result = await fetchWithAuth('/auth/2fa/disable', {
+        method: 'POST',
+        body: JSON.stringify({ token })
+      });
+
+      if (result.error) {
+        return { error: result.error };
+      }
+
+      return result;
+    } catch (error) {
+      console.error('Error disabling 2FA:', error);
+      return { error: error.message };
+    }
+  },
+
+  get2FAStatus: async () => {
+    try {
+      const result = await fetchWithAuth('/auth/2fa/status', {
+        method: 'GET'
+      });
+
+      console.log('2FA status response:', result);
+
+      if (result.error) {
+        return { error: result.error };
+      }
+
+      // Return the data in a consistent format
+      return {
+        data: {
+          enabled: result.data?.enabled || false,
+          pendingSetup: result.data?.pendingSetup || false
+        },
+        error: null
+      };
+    } catch (error) {
+      console.error('Error getting 2FA status:', error);
+      return { error: error.message };
+    }
+  },
+
+  verify2FALogin: async ({ token, tempToken }) => {
+    try {
+      if (!token || !tempToken) {
+        console.error('Missing required parameters for 2FA verification:', { token: !!token, tempToken: !!tempToken });
+        return { error: 'Missing required parameters' };
+      }
+
+      const response = await fetch(`${API_URL}/auth/2fa/verify-login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ token, tempToken })
+      });
+
+      const data = await response.json();
+      console.log('2FA verification API response:', data);
+
+      if (!response.ok) {
+        return { error: data.error || 'Verification failed' };
+      }
+
+      if (data.token && data.user) {
+        // Store both tokens
+        browserAuth.setAuth(data.token, data.refreshToken, data.user);
+        return {
+          data: {
+            user: data.user,
+            token: data.token,
+            refreshToken: data.refreshToken
+          },
+          error: null
+        };
+      }
+
+      return { data: null, error: 'Invalid response from server' };
+    } catch (error) {
+      console.error('2FA verification error:', error);
+      return { data: null, error: error.message };
+    }
+  },
+
+  checkSession: async () => {
+    const user = browserAuth.getUser();
+    
+    if (!user) {
+      return { data: null, error: 'No active session' };
+    }
+
+    try {
+      const result = await fetchWithAuth('/auth/check-session');
+      
+      if (result.error) {
+        browserAuth.clearAuth();
+        return { data: null, error: result.error };
+      }
+      
+      return { data: { user }, error: null };
+    } catch (error) {
+      console.error('Session check error:', error);
+      return { data: null, error: error.message };
+    }
+  }
 };
 
 // Export a function to manually invalidate cache

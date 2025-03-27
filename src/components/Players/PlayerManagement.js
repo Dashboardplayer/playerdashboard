@@ -31,6 +31,8 @@ import {
   TableHead,
   TableRow,
   Checkbox,
+  Alert,
+  CircularProgress,
 } from '@mui/material';
 import {
   Search as SearchIcon,
@@ -55,6 +57,7 @@ import {
   ArrowDownward,
 } from '@mui/icons-material';
 import { playerAPI, companyAPI } from '../../hooks/apiClient';
+import { ablyService } from '../../services/ablyService';
 
 const ITEMS_PER_PAGE = 12;
 
@@ -160,250 +163,312 @@ const PlayerCard = ({
 };
 
 // PlayerDetailsDialog component moved outside
-const PlayerDetailsDialog = ({ 
-  open, 
-  onClose, 
-  player, 
-  company, 
-  onUrlUpdate, 
-  onCommand, 
-  setError 
-}) => {
-  const [localUrl, setLocalUrl] = useState(player?.current_url || '');
-  const [isEditingUrl, setIsEditingUrl] = useState(false);
+const PlayerDetailsDialog = ({ open, onClose, player, onCommand }) => {
+    const [currentUrl, setCurrentUrl] = useState(player?.currentUrl || '');
+    const [isEditing, setIsEditing] = useState(false);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+    const [success, setSuccess] = useState('');
+    const [commandStatus, setCommandStatus] = useState(null);
+    const [commandHistory, setCommandHistory] = useState([]);
+    const [showHistory, setShowHistory] = useState(false);
+    const [updateUrl, setUpdateUrl] = useState('');
+    const [ablyInitialized, setAblyInitialized] = useState(false);
 
   useEffect(() => {
-    setLocalUrl(player?.current_url || '');
-  }, [player]);
+        // Initialize Ably service
+        const initializeAbly = async () => {
+            try {
+                await ablyService.initialize();
+                setAblyInitialized(true);
+            } catch (err) {
+                console.error('Failed to initialize Ably:', err);
+                setError('Failed to initialize real-time communication service');
+            }
+        };
 
-  const handleUrlSave = async () => {
-    try {
-      await onUrlUpdate(player.id, localUrl);
-      setIsEditingUrl(false);
+        if (open) {
+            initializeAbly();
+        }
+
+        return () => {
+            // Cleanup if needed
+            if (ablyInitialized) {
+                ablyService.cleanup();
+            }
+        };
+    }, [open]);
+
+    useEffect(() => {
+        if (!ablyInitialized || !commandStatus?.id) return;
+
+        // Subscribe to command acknowledgments
+        const handleAcknowledgment = (acknowledgment) => {
+            if (acknowledgment.commandId === commandStatus.id) {
+                setCommandStatus(prev => ({
+                    ...prev,
+                    status: acknowledgment.status,
+                    error: acknowledgment.error,
+                    timestamp: acknowledgment.timestamp
+                }));
+
+                // Add to command history
+                setCommandHistory(prev => [{
+                    id: acknowledgment.commandId,
+                    type: commandStatus.type,
+                    status: acknowledgment.status,
+                    error: acknowledgment.error,
+                    timestamp: acknowledgment.timestamp
+                }, ...prev]);
+
+                if (acknowledgment.status === 'success') {
+                    setSuccess('Command executed successfully');
+                } else if (acknowledgment.status === 'error') {
+                    setError(`Command failed: ${acknowledgment.error}`);
+                }
+            }
+        };
+
+        ablyService.onCommandAcknowledgment(handleAcknowledgment);
+
+        return () => {
+            // Cleanup subscription if needed
+        };
+    }, [ablyInitialized, commandStatus?.id]);
+
+    const handleCommand = async (commandType, payload = {}) => {
+        if (!ablyInitialized) {
+            setError('Real-time communication service not initialized');
+            return;
+        }
+
+        setLoading(true);
+        setError('');
+        setSuccess('');
+        setCommandStatus(null);
+
+        try {
+            const commandId = await ablyService.sendCommand(player.id, {
+                type: commandType,
+                payload
+            });
+
+            setCommandStatus({
+                id: commandId,
+                type: commandType,
+                status: 'pending',
+                timestamp: new Date()
+            });
+
+            if (onCommand) {
+                onCommand(player.id, commandType);
+            }
     } catch (err) {
-      setError('Failed to update URL');
-    }
-  };
+            setError(`Failed to send command: ${err.message}`);
+            setLoading(false);
+        }
+    };
 
-  if (!player) return null;
+    const handleUpdateSubmit = async () => {
+        if (!ablyInitialized) {
+            setError('Real-time communication service not initialized');
+            return;
+        }
 
-  const InfoItem = ({ label, value, icon, chip }) => (
-    <Box sx={{ 
-      display: 'flex', 
-      alignItems: 'flex-start',
-      p: 1.5,
-      '&:not(:last-child)': {
-        borderBottom: 1,
-        borderColor: 'divider'
-      }
-    }}>
-      {icon && (
-        <Box sx={{ mr: 2, color: 'text.secondary', pt: 0.25 }}>
-          {icon}
-        </Box>
-      )}
-      <Box sx={{ flex: 1 }}>
-        <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
-          {label}
-        </Typography>
-        {chip ? (
-          <Box sx={{ mt: 0.5 }}>
-            {value}
-          </Box>
-        ) : (
-          <Typography variant="body1" sx={{ wordBreak: 'break-all' }}>
-            {value || 'Not set'}
-          </Typography>
-        )}
-      </Box>
-    </Box>
-  );
+        if (!updateUrl) {
+            setError('Please enter an update URL');
+            return;
+        }
+
+        setLoading(true);
+        setError('');
+        setSuccess('');
+        setCommandStatus(null);
+
+        try {
+            const commandId = await ablyService.sendCommand(player.id, {
+                type: 'update',
+                payload: { url: updateUrl }
+            });
+
+            setCommandStatus({
+                id: commandId,
+                type: 'update',
+                status: 'pending',
+                timestamp: new Date()
+            });
+
+            if (onCommand) {
+                onCommand(player.id, 'update');
+            }
+        } catch (err) {
+            setError(`Failed to send update command: ${err.message}`);
+            setLoading(false);
+        }
+    };
 
   return (
-    <Dialog 
-      open={open} 
-      onClose={onClose}
-      maxWidth="md"
-      fullWidth
-    >
-      <DialogTitle sx={{ 
-        borderBottom: 1, 
-        borderColor: 'divider',
-        bgcolor: 'background.paper',
-        position: 'sticky',
-        top: 0,
-        zIndex: 1
-      }}>
-        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-          <DeviceIcon sx={{ mr: 2 }} />
-          <Typography variant="h6">
-            Player Details
+        <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+            <DialogTitle>Player Details</DialogTitle>
+            <DialogContent>
+                <Box sx={{ mt: 2 }}>
+                    <Typography variant="h6" gutterBottom>
+                        Device Management
           </Typography>
+                    <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+                        <Button
+                            variant="contained"
+                            color="warning"
+                            onClick={() => handleCommand('reboot')}
+                            disabled={loading}
+                        >
+                            Restart Device
+                        </Button>
+                        <Button
+                            variant="contained"
+                            color="primary"
+                            onClick={() => handleCommand('screenshot')}
+                            disabled={loading}
+                        >
+                            Take Screenshot
+                        </Button>
+                        <Button
+                            variant="contained"
+                            color="secondary"
+                            onClick={() => handleCommand('update')}
+                            disabled={loading}
+                        >
+                            Update APK
+                        </Button>
         </Box>
-      </DialogTitle>
-      <DialogContent sx={{ p: 0 }}>
-        <Grid container spacing={0}>
-          {/* Basic Information */}
-          <Grid item xs={12} md={6}>
-            <Box sx={{ p: 2 }}>
-              <Typography variant="h6" gutterBottom sx={{ px: 1.5, mb: 2 }}>
-                Basic Information
-              </Typography>
-              <Paper variant="outlined" sx={{ bgcolor: 'background.paper' }}>
-                <InfoItem 
-                  label="Device ID"
-                  value={player.device_id}
-                  icon={<DeviceIcon fontSize="small" />}
-                />
-                <InfoItem 
-                  label="Status"
-                  value={
-                    <Chip
-                      label={player.is_online ? 'Online' : 'Offline'}
-                      color={player.is_online ? 'success' : 'error'}
-                      size="small"
-                      sx={{ minWidth: 80 }}
-                    />
-                  }
-                  icon={<CircleIcon fontSize="small" />}
-                  chip
-                />
-                <InfoItem 
-                  label="Company"
-                  value={company ? company.company_name : 'Not assigned'}
-                  icon={<BusinessIcon fontSize="small" />}
-                />
-                <InfoItem 
-                  label="Last Seen"
-                  value={player.last_seen ? new Date(player.last_seen).toLocaleString() : 'Never'}
-                  icon={<AccessTimeIcon fontSize="small" />}
-                />
-                <InfoItem 
-                  label="Created At"
-                  value={new Date(player.createdAt).toLocaleString()}
-                  icon={<CalendarTodayIcon fontSize="small" />}
-                />
-              </Paper>
-            </Box>
-          </Grid>
 
-          {/* URL Management */}
-          <Grid item xs={12} md={6} sx={{ borderLeft: { md: 1 }, borderColor: 'divider' }}>
-            <Box sx={{ p: 2 }}>
-              <Typography variant="h6" gutterBottom sx={{ px: 1.5, mb: 2 }}>
-                URL Management
+                    <Typography variant="h6" gutterBottom>
+                        URL Management
               </Typography>
-              <Paper variant="outlined" sx={{ p: 2, bgcolor: 'background.paper' }}>
-                {isEditingUrl ? (
-                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+                        <TextField
+                            fullWidth
+                            label="Current URL"
+                            value={currentUrl}
+                            onChange={(e) => setCurrentUrl(e.target.value)}
+                            disabled={!isEditing}
+                        />
+                        <Button
+                            variant="contained"
+                            onClick={() => {
+                                if (isEditing) {
+                                    handleCommand('updateUrl', { url: currentUrl });
+                                }
+                                setIsEditing(!isEditing);
+                            }}
+                            disabled={loading}
+                        >
+                            {isEditing ? 'Save' : 'Edit'}
+                        </Button>
+            </Box>
+
+                    <Typography variant="h6" gutterBottom>
+                        Update Management
+              </Typography>
+                    <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
                     <TextField
                       fullWidth
-                      size="small"
-                      value={localUrl}
-                      onChange={(e) => setLocalUrl(e.target.value)}
-                      placeholder="Enter URL"
-                      InputProps={{
-                        startAdornment: (
-                          <InputAdornment position="start">
-                            <LinkIcon />
-                          </InputAdornment>
-                        ),
-                      }}
-                    />
-                    <IconButton 
-                      color="primary"
-                      onClick={handleUrlSave}
-                      sx={{ bgcolor: 'primary.main', color: 'white', '&:hover': { bgcolor: 'primary.dark' } }}
-                    >
-                      <SaveIcon />
-                    </IconButton>
-                    <IconButton 
-                      onClick={() => {
-                        setIsEditingUrl(false);
-                        setLocalUrl(player.current_url || '');
-                      }}
-                    >
-                      <CancelIcon />
-                    </IconButton>
-                  </Box>
-                ) : (
-                  <Box>
-                    <Typography variant="caption" color="text.secondary" display="block" gutterBottom>
-                      Current URL
-                    </Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <LinkIcon color="action" sx={{ fontSize: '1.2rem' }} />
-                      <Typography 
-                        variant="body1" 
-                        sx={{ 
-                          flex: 1,
-                          wordBreak: 'break-all',
-                          fontFamily: 'monospace'
-                        }}
-                      >
-                        {player.current_url || 'Not set'}
-                      </Typography>
-                      <IconButton 
-                        size="small"
-                        onClick={() => setIsEditingUrl(true)}
-                        sx={{ ml: 1 }}
-                      >
-                        <EditIcon />
-                      </IconButton>
+                            label="Update URL"
+                            value={updateUrl}
+                            onChange={(e) => setUpdateUrl(e.target.value)}
+                            placeholder="Enter update URL"
+                            disabled={loading}
+                        />
+                        <Button
+                            variant="contained"
+                            onClick={handleUpdateSubmit}
+                            disabled={loading || !updateUrl}
+                        >
+                            Update
+                        </Button>
                     </Box>
+
+                    <Box sx={{ mt: 3 }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                            <Typography variant="h6">
+                                Command History
+                            </Typography>
+                            <Button
+                                size="small"
+                                onClick={() => setShowHistory(!showHistory)}
+                            >
+                                {showHistory ? 'Hide History' : 'Show History'}
+                            </Button>
+                  </Box>
+                        
+                        {showHistory && (
+                            <Box sx={{ maxHeight: 300, overflow: 'auto' }}>
+                                {commandHistory.length === 0 ? (
+                                    <Typography color="text.secondary" align="center">
+                                        No command history available
+                    </Typography>
+                                ) : (
+                                    commandHistory.map((cmd) => (
+                                        <Paper
+                                            key={cmd.id}
+                        sx={{ 
+                                                p: 1.5,
+                                                mb: 1,
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: 1
+                                            }}
+                                        >
+                                            <Box sx={{ flex: 1 }}>
+                                                <Typography variant="body2">
+                                                    {cmd.type.charAt(0).toUpperCase() + cmd.type.slice(1)}
+                      </Typography>
+                                                <Typography variant="caption" color="text.secondary">
+                                                    {new Date(cmd.timestamp).toLocaleString()}
+                                                </Typography>
+                                            </Box>
+                                            <Chip
+                                                label={cmd.status}
+                                                color={
+                                                    cmd.status === 'success' ? 'success' :
+                                                    cmd.status === 'error' ? 'error' :
+                                                    cmd.status === 'pending' ? 'warning' : 'default'
+                                                }
+                        size="small"
+                                            />
+                                        </Paper>
+                                    ))
+                                )}
                   </Box>
                 )}
-              </Paper>
             </Box>
-          </Grid>
 
-          {/* Device Management */}
-          <Grid item xs={12}>
-            <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider' }}>
-              <Typography variant="h6" gutterBottom sx={{ px: 1.5, mb: 2 }}>
-                Device Management
-              </Typography>
-              <Paper variant="outlined" sx={{ p: 2, bgcolor: 'background.paper' }}>
-                <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
-                  <Button
-                    variant="outlined"
-                    startIcon={<RefreshIcon />}
-                    onClick={() => onCommand(player._id, 'RESTART')}
-                  >
-                    Restart Device
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    startIcon={<ScreenshotIcon />}
-                    onClick={() => onCommand(player._id, 'SCREENSHOT')}
-                  >
-                    Take Screenshot
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    startIcon={<UpdateIcon />}
-                    onClick={() => onCommand(player._id, 'UPDATE_APK')}
-                  >
-                    Update APK
-                  </Button>
-                </Stack>
-              </Paper>
+                    {error && (
+                        <Alert severity="error" sx={{ mt: 2 }}>
+                            {error}
+                        </Alert>
+                    )}
+
+                    {success && (
+                        <Alert severity="success" sx={{ mt: 2 }}>
+                            {success}
+                        </Alert>
+                    )}
+
+                    {commandStatus && (
+                        <Box sx={{ mt: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <CircularProgress size={20} />
+                            <span>
+                                {commandStatus.status === 'pending' && 'Sending command...'}
+                                {commandStatus.status === 'success' && 'Command executed successfully'}
+                                {commandStatus.status === 'error' && `Command failed: ${commandStatus.error}`}
+                            </span>
             </Box>
-          </Grid>
-        </Grid>
+                    )}
+                </Box>
       </DialogContent>
-      <DialogActions sx={{ 
-        borderTop: 1, 
-        borderColor: 'divider',
-        p: 2,
-        bgcolor: 'background.paper',
-        position: 'sticky',
-        bottom: 0,
-        zIndex: 1
-      }}>
-        <Button onClick={onClose} variant="outlined">
-          Close
-        </Button>
+            <DialogActions>
+                <Button onClick={onClose}>Close</Button>
       </DialogActions>
     </Dialog>
   );
@@ -570,10 +635,19 @@ const BulkEditDialog = ({
 
     setLoading(true);
     try {
-      await onBulkCommand(selectedPlayers, command);
+      // Send command to all selected players using Ably
+      await Promise.all(
+        selectedPlayers.map(playerId =>
+          ablyService.sendCommand(playerId, {
+            type: command.toLowerCase(),
+            payload: {}
+          })
+        )
+      );
+      
       setSuccess(`${command} command sent to selected players`);
     } catch (err) {
-      setError(`Failed to send ${command} command: ` + err.message);
+      setError(`Failed to send ${command} command: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -723,7 +797,7 @@ const BulkEditDialog = ({
               <Button
                 variant="outlined"
                 startIcon={<RefreshIcon />}
-                onClick={() => handleBulkCommand('RESTART')}
+                onClick={() => handleBulkCommand('reboot')}
                 disabled={loading || selectedPlayers.length === 0}
               >
                 Restart Selected
@@ -731,7 +805,7 @@ const BulkEditDialog = ({
               <Button
                 variant="outlined"
                 startIcon={<UpdateIcon />}
-                onClick={() => handleBulkCommand('UPDATE_APK')}
+                onClick={() => handleBulkCommand('update')}
                 disabled={loading || selectedPlayers.length === 0}
               >
                 Update APK
@@ -1134,12 +1208,18 @@ function PlayerManagement() {
   };
 
   const handleBulkCommand = async (playerIds, command) => {
+    if (playerIds.length === 0) {
+      setError('Please select players first');
+      return;
+    }
+
+    setLoading(true);
     try {
-      // Send command to all selected players
+      // Send command to all selected players using Ably
       await Promise.all(
         playerIds.map(playerId =>
-          playerAPI.createCommand(playerId, {
-            type: command,
+          ablyService.sendCommand(playerId, {
+            type: command.toLowerCase(),
             payload: {}
           })
         )
@@ -1147,8 +1227,9 @@ function PlayerManagement() {
       
       setSuccess(`${command} command sent to selected players`);
     } catch (err) {
-      setError(`Failed to send ${command} command: ` + err.message);
-      throw err;
+      setError(`Failed to send ${command} command: ${err.message}`);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -1455,10 +1536,7 @@ function PlayerManagement() {
         open={detailsDialogOpen}
         onClose={() => setDetailsDialogOpen(false)}
         player={selectedPlayer}
-        company={selectedPlayer ? companies.find(c => c.company_id === selectedPlayer.company_id) : null}
-        onUrlUpdate={handleUrlUpdate}
         onCommand={handleUrlUpdate}
-        setError={setError}
       />
 
       {/* Delete Confirmation Dialog */}

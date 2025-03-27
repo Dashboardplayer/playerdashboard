@@ -8,24 +8,230 @@ import Mailjet from 'node-mailjet';
 import crypto from 'crypto';
 import { createServer } from 'http';
 import { WebSocket, WebSocketServer } from 'ws';
+import helmet from 'helmet';
 import User from './src/models/User.js';
 import Company from './src/models/Company.js';
 import { sendPasswordResetEmail, sendRegistrationInvitationEmail } from './src/services/emailService.js';
 import './src/cron/registrationReminders.js'; // Initialize registration reminders cron job
+import './src/cron/tokenMaintenance.js'; // Initialize token maintenance cron job
 import { validatePassword } from './src/utils/passwordValidation.js';
+import {
+  generateTOTPSecret,
+  verifyTOTPSetup,
+  verifyTOTP,
+  disable2FA,
+  get2FAStatus
+} from './src/services/twoFactorService.js';
+import rateLimit from 'express-rate-limit';
+import RefreshToken from './src/models/RefreshToken.js';
+import { addToDenylist, isTokenDenylisted } from './src/services/tokenDenylistService.js';
+import Ably from 'ably';
 
 // Load environment variables
 dotenv.config();
+
+// Parse allowed origins from environment variable
+const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'];
+const corsMaxAge = parseInt(process.env.CORS_MAX_AGE) || 86400;
+
+// CORS configuration
+const corsOptions = {
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    // In development, allow all origins
+    if (process.env.NODE_ENV === 'development') {
+      return callback(null, true);
+    }
+    
+    // Check if the origin is in the allowed list
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    
+    console.log('CORS blocked for origin:', origin);
+    return callback(new Error('The CORS policy for this site does not allow access from the specified Origin.'));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['X-RateLimit-Limit', 'X-RateLimit-Remaining', 'X-RateLimit-Reset'],
+  maxAge: corsMaxAge
+};
+
+// Standard API limiter for mutations (POST, PUT, DELETE)
+const mutationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // 100 requests per 15 minutes
+  message: { error: 'Te veel mutatie verzoeken. Probeer het later opnieuw.' }
+});
+
+// More permissive limiter for GET requests
+const queryLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 300, // 300 requests per minute
+  message: { error: 'Te veel data verzoeken. Probeer het later opnieuw.' }
+});
+
+// Special limiter for real-time endpoints
+const realtimeLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 600, // 600 requests per minute (10 requests per second)
+  message: { error: 'Te veel real-time verzoeken. Probeer het later opnieuw.' }
+});
+
+// Authentication limiter (unchanged)
+const authLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000, // 5 minutes
+  max: 5, // 5 attempts
+  message: { error: 'Te veel inlogpogingen. Probeer het over 5 minuten opnieuw.' }
+});
+
+// Rate limiting configurations
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // Allow more attempts during development
+  message: { error: 'Te veel inlogpogingen. Probeer het later opnieuw.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    return req.ip; // Simplify rate limiting to just IP during development
+  }
+});
+
+// Validate required environment variables
+const requiredEnvVars = ['JWT_SECRET', 'MONGO_URI'];
+const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
+if (missingEnvVars.length > 0) {
+  console.error('Error: Missing required environment variables:', missingEnvVars.join(', '));
+  process.exit(1);
+}
 
 // Create Express app
 const app = express();
 const PORT = process.env.PORT || 5001;
 
+// Apply CORS
+app.use(cors(corsOptions));
+
+// Handle preflight requests for all routes
+app.options('*', cors(corsOptions));
+
+// Security Headers Configuration
+if (process.env.SECURITY_HEADERS_ENABLED === 'true') {
+  // Content Security Policy
+  app.use(helmet.contentSecurityPolicy({
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://www.google.com", "https://www.gstatic.com"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'", "wss:", "ws:", "https:"],
+      frameSrc: ["'self'", "https://www.google.com"],
+      objectSrc: ["'none'"],
+      mediaSrc: ["'self'"],
+      formAction: ["'self'"],
+      upgradeInsecureRequests: []
+    }
+  }));
+
+  // X-Frame-Options
+  app.use(helmet.frameguard({
+    action: process.env.X_FRAME_OPTIONS || 'DENY'
+  }));
+
+  // X-Content-Type-Options
+  app.use(helmet.noSniff());
+
+  // X-XSS-Protection
+  app.use(helmet.xssFilter());
+
+  // HSTS
+  app.use(helmet.hsts({
+    maxAge: 31536000,
+    includeSubDomains: true,
+    preload: true
+  }));
+
+  // Other security headers
+  app.use(helmet.hidePoweredBy());
+  app.use(helmet.crossOriginEmbedderPolicy({ policy: "credentialless" }));
+  app.use(helmet.crossOriginOpenerPolicy({ policy: "same-origin" }));
+  app.use(helmet.crossOriginResourcePolicy({ policy: "same-origin" }));
+  app.use(helmet.dnsPrefetchControl());
+  app.use(helmet.ieNoOpen());
+  app.use(helmet.originAgentCluster());
+  app.use(helmet.permittedCrossDomainPolicies({ permittedPolicies: "none" }));
+  app.use(helmet.referrerPolicy({ policy: "strict-origin-when-cross-origin" }));
+}
+
+// Configure body parser with explicit limits and types
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(bodyParser.json({ limit: '10mb' }));
+
+// Add request logging middleware
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.path}`);
+  next();
+});
+
+// Apply rate limiters to different route types
+app.use('/api/auth/login', loginLimiter);
+
+// Apply real-time limiter to player-related endpoints
+app.use('/api/players', realtimeLimiter);
+
+// Apply query limiter to GET requests
+app.use('/api/companies', queryLimiter);
+app.use('/api/users', queryLimiter);
+
+// Apply mutation limiter to modification endpoints
+app.use((req, res, next) => {
+  if (['POST', 'PUT', 'DELETE'].includes(req.method)) {
+    return mutationLimiter(req, res, next);
+  }
+  next();
+});
+
+// Add rate limit headers
+app.use((req, res, next) => {
+  res.header('X-RateLimit-Limit', req.rateLimit?.limit);
+  res.header('X-RateLimit-Remaining', req.rateLimit?.remaining);
+  res.header('X-RateLimit-Reset', req.rateLimit?.reset);
+  next();
+});
+
 // Create HTTP server
 const server = createServer(app);
 
 // Initialize WebSocket server
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({ 
+  server,
+  verifyClient: (info, cb) => {
+    console.log('New WebSocket connection attempt');
+    authenticateWSConnection(info.req, (err) => {
+      if (err) {
+        console.log('WebSocket authentication failed:', err.message);
+        cb(false, 401, 'Unauthorized');
+      } else {
+        cb(true);
+      }
+    });
+  }
+});
+
+// Initialize Ably
+let ablyService;
+
+if (process.env.ABLY_API_KEY) {
+    ablyService = new Ably.Rest(process.env.ABLY_API_KEY);
+    console.log('Ably service initialized successfully');
+} else {
+    console.log('Ably API key not found, real-time communication will be unavailable');
+}
 
 // Initialize Mailjet if credentials are provided
 let mailjet;
@@ -39,67 +245,115 @@ if (process.env.MAILJET_API_KEY && process.env.MAILJET_SECRET_KEY) {
   console.log('Mailjet credentials not found, email functionality will be unavailable');
 }
 
-// Middleware
-app.use(cors({
-  origin: function(origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    // Allow any localhost origin during development
-    if (origin.startsWith('http://localhost:')) {
-      return callback(null, true);
+// Token generation function with enhanced security
+const generateToken = (user) => {
+  if (!user || !user._id || !user.email || !user.role) {
+    throw new Error('Invalid user data for token generation');
+  }
+
+  // Generate a unique jti (JWT ID)
+  const jti = crypto.randomBytes(16).toString('hex');
+
+  return jwt.sign(
+    { 
+      jti,
+      sub: user._id.toString(),
+      email: user.email,
+      role: user.role,
+      company_id: user.company_id,
+      id: user._id.toString()
+    },
+    process.env.JWT_SECRET,
+    { 
+      expiresIn: '15m', // Reduced from 24h to 15m
+      algorithm: 'HS256',
+      audience: 'player-dashboard-api',
+      issuer: 'player-dashboard'
     }
-    
-    callback(new Error('Not allowed by CORS'));
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+  );
+};
 
-// Configure body parser with explicit limits and types
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-app.use(bodyParser.json({ limit: '10mb' }));
-
-// Add request logging middleware
-app.use((req, res, next) => {
-  console.log(`${req.method} ${req.path}`);
-  next();
-});
-
-// Simple authentication middleware
-const authenticateToken = (req, res, next) => {
+// Enhanced authentication middleware with additional security checks
+const authenticateToken = async (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
   
   if (!token) {
-    console.log('No token provided in request');
     return res.status(401).json({ error: 'No token provided' });
   }
   
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'default-secret-key');
-    console.log('Decoded token:', { ...decoded, id: decoded.id }); // Log decoded token info (excluding sensitive data)
+    const decoded = jwt.verify(token, process.env.JWT_SECRET, {
+      algorithms: ['HS256'],
+      audience: 'player-dashboard-api',
+      issuer: 'player-dashboard',
+      clockTolerance: 30
+    });
     
-    // Ensure required user information is present
-    if (!decoded.role || !decoded.email) {
-      console.log('Token missing required user information');
+    // Check if token is denylisted
+    const isDenylisted = await isTokenDenylisted(decoded.jti);
+    if (isDenylisted) {
+      return res.status(401).json({ error: 'Token has been revoked' });
+    }
+
+    // Enhanced validation
+    if (!decoded.sub && !decoded.id) {
       return res.status(403).json({ error: 'Invalid token format' });
     }
     
+    // Fetch current user data from database to verify role
+    const user = await User.findById(decoded.sub || decoded.id);
+    if (!user) {
+      return res.status(403).json({ error: 'User not found' });
+    }
+
+    // Verify that the role in token matches current database role
+    if (decoded.role !== user.role) {
+      return res.status(403).json({ error: 'Role mismatch - please log in again' });
+    }
+    
+    // Store minimal user info in request
     req.user = {
-      id: decoded.id,
+      id: decoded.sub || decoded.id,
       email: decoded.email,
-      role: decoded.role,
-      company_id: decoded.company_id
+      role: user.role, // Use role from database instead of token
+      company_id: decoded.company_id,
+      jti: decoded.jti
     };
     
     next();
   } catch (error) {
-    console.log('Token verification failed:', error.message);
-    return res.status(403).json({ error: 'Invalid token' });
+    console.error('Token verification error:', error.message);
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({ error: 'Token expired' });
+    }
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(403).json({ error: 'Invalid token' });
+    }
+    return res.status(403).json({ error: 'Token verification failed' });
   }
+};
+
+// Role-based authorization middleware
+const authorize = (...allowedRoles) => {
+  return async (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    // Fetch fresh user data from database
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(403).json({ error: 'User not found' });
+    }
+
+    // Check if user's current role is allowed
+    if (!allowedRoles.includes(user.role)) {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+
+    next();
+  };
 };
 
 // MongoDB connection is required
@@ -143,136 +397,320 @@ const CommandSchema = new mongoose.Schema({
 const Player = mongoose.model('Player', PlayerSchema);
 const Command = mongoose.model('Command', CommandSchema);
 
-// WebSocket connection handling
-wss.on('connection', function connection(ws, req) {
-  // Authenticate the connection
-  authenticateWSConnection(req, (err) => {
-    if (err) {
-      ws.terminate();
-      return;
-    }
-    
-    console.log('New WebSocket connection authenticated');
-    ws.isAlive = true;
-    ws.on('pong', heartbeat);
+// Message batching configuration
+const BATCH_INTERVAL = 1000; // 1 second
+const pendingUpdates = new Map();
 
-    // Handle incoming messages
-    ws.on('message', function incoming(message) {
-      try {
-        const parsedMessage = JSON.parse(message);
-        if (!validateMessage(parsedMessage)) {
-          console.error('Invalid message format');
-          return;
-        }
-        
-        // Handle different message types
-        switch (parsedMessage.type) {
-          case 'status_update':
-            handleStatusUpdate(parsedMessage.data);
-            break;
-          case 'command_response':
-            handleCommandResponse(parsedMessage.data);
-            break;
-          default:
-            console.log('Unknown message type:', parsedMessage.type);
-        }
-      } catch (error) {
-        console.error('Error processing message:', error);
-      }
-    });
-
-    ws.on('close', function() {
-      console.log('Client disconnected');
-    });
-  });
-});
-
-// Set up the heartbeat interval
-const interval = setInterval(function ping() {
-  wss.clients.forEach(function each(ws) {
-    if (ws.isAlive === false) return ws.terminate();
-    
-    ws.isAlive = false;
-    ws.ping();
-  });
-}, 30000);
-
-wss.on('close', function close() {
-  clearInterval(interval);
-});
-
-// Helper functions
-function heartbeat() {
-  this.isAlive = true;
-}
-
-// Broadcast function to send updates to all connected clients
+// Modified broadcast function with batching
 const broadcastEvent = (eventType, data) => {
-  const message = JSON.stringify({ type: eventType, data });
-  
-  wss.clients.forEach((client, ws) => {
+  // For non-player events, broadcast immediately
+  if (!eventType.startsWith('player_')) {
+    const message = JSON.stringify({ type: eventType, data });
+    broadcastToClients(message);
+    return;
+  }
+
+  // For player events, batch updates
+  const playerId = data.id || data._id;
+  if (!playerId) return;
+
+  if (!pendingUpdates.has(playerId)) {
+    pendingUpdates.set(playerId, {
+      data,
+      timestamp: Date.now()
+    });
+
+    // Schedule batch update
+    setTimeout(() => {
+      const update = pendingUpdates.get(playerId);
+      if (update) {
+        const message = JSON.stringify({
+          type: eventType,
+          data: update.data,
+          batchTimestamp: Date.now()
+        });
+        broadcastToClients(message);
+        pendingUpdates.delete(playerId);
+      }
+    }, BATCH_INTERVAL);
+  } else {
+    // Update existing pending update
+    const existing = pendingUpdates.get(playerId);
+    pendingUpdates.set(playerId, {
+      data: { ...existing.data, ...data },
+      timestamp: Date.now()
+    });
+  }
+};
+
+// Helper function to broadcast to clients
+const broadcastToClients = (message) => {
+  wss.clients.forEach((client) => {
     // Only send to authenticated clients
     if (!client.user) return;
     
     // Filter messages based on user role and company
     if (client.user.role !== 'superadmin') {
+      const data = JSON.parse(message).data;
+      
       // For company events, only superadmin receives all updates
-      if (eventType.startsWith('company_')) {
+      if (message.startsWith('company_')) {
         return;
       }
       
       // For player events, only send if it's for their company
-      if (eventType.startsWith('player_') && 
+      if (message.startsWith('player_') && 
           data.company_id !== client.user.company_id) {
         return;
       }
     }
     
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(message);
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(message);
     }
   });
 };
 
-// WebSocket authentication middleware
+// Add heartbeat mechanism
+const HEARTBEAT_INTERVAL = 30000;
+const HEARTBEAT_TIMEOUT = 35000;
+
+// Add these constants near other WebSocket-related constants
+const TOKEN_VERIFICATION_INTERVAL = 60000; // Verify token every minute
+const ACTIVE_CONNECTIONS = new Map(); // Track active connections
+
+// Modify the WebSocket connection handler
+wss.on('connection', function connection(ws, req) {
+  console.log('New WebSocket connection established');
+  ws.isAlive = true;
+  ws.user = req.user;
+  ws.clientId = null;
+  
+  // Add connection to active connections map
+  ACTIVE_CONNECTIONS.set(ws, {
+    userId: req.user.id,
+    lastVerified: Date.now(),
+    token: req.token // Store the token from the authentication
+  });
+  
+  // Set up heartbeat for this connection
+  const heartbeat = setInterval(() => {
+    if (!ws.isAlive) {
+      clearInterval(heartbeat);
+      ACTIVE_CONNECTIONS.delete(ws);
+      return ws.terminate();
+    }
+    ws.isAlive = false;
+    ws.ping();
+  }, HEARTBEAT_INTERVAL);
+
+  // Set up token verification interval
+  const tokenVerifier = setInterval(async () => {
+    try {
+      const connInfo = ACTIVE_CONNECTIONS.get(ws);
+      if (!connInfo) {
+        clearInterval(tokenVerifier);
+        return ws.terminate();
+      }
+
+      // Verify token is still valid
+      try {
+        const decoded = jwt.verify(connInfo.token, process.env.JWT_SECRET, {
+          algorithms: ['HS256'],
+          audience: 'player-dashboard-api',
+          issuer: 'player-dashboard'
+        });
+
+        // Check if token is denylisted
+        const isDenylisted = await isTokenDenylisted(decoded.jti);
+        if (isDenylisted) {
+          console.log('Token denylisted, terminating WebSocket connection');
+          ws.close(4401, 'Token has been revoked');
+          return;
+        }
+
+        // Verify user still exists and has same role
+        const user = await User.findById(decoded.sub || decoded.id);
+        if (!user || user.role !== decoded.role) {
+          console.log('User changed or deleted, terminating WebSocket connection');
+          ws.close(4401, 'User authentication invalid');
+          return;
+        }
+
+        // Update last verification time
+        connInfo.lastVerified = Date.now();
+        ACTIVE_CONNECTIONS.set(ws, connInfo);
+      } catch (error) {
+        console.log('Token verification failed:', error.message);
+        ws.close(4401, 'Token verification failed');
+      }
+    } catch (error) {
+      console.error('Error in token verification interval:', error);
+      ws.close(4400, 'Internal verification error');
+    }
+  }, TOKEN_VERIFICATION_INTERVAL);
+
+  // Handle pong responses
+  ws.on('pong', () => {
+    ws.isAlive = true;
+  });
+
+  // Clear intervals and remove from active connections on close
+  ws.on('close', () => {
+    clearInterval(heartbeat);
+    clearInterval(tokenVerifier);
+    ACTIVE_CONNECTIONS.delete(ws);
+  });
+
+  // Handle incoming messages
+  ws.on('message', function incoming(message) {
+    try {
+      const parsedMessage = JSON.parse(message);
+      if (!validateMessage(parsedMessage)) {
+        console.error('Invalid message format');
+        return;
+      }
+      
+      switch (parsedMessage.type) {
+        case 'authenticate':
+          try {
+            const decoded = jwt.verify(parsedMessage.token, process.env.JWT_SECRET, {
+              algorithms: ['HS256'],
+              audience: 'player-dashboard-api',
+              issuer: 'player-dashboard'
+            });
+            
+            // Verify the authentication matches the connection
+            if (decoded.sub !== ws.user.id) {
+              throw new Error('Token user mismatch');
+            }
+            
+            // Update stored token
+            const connInfo = ACTIVE_CONNECTIONS.get(ws);
+            if (connInfo) {
+              connInfo.token = parsedMessage.token;
+              ACTIVE_CONNECTIONS.set(ws, connInfo);
+            }
+            
+            ws.clientId = parsedMessage.clientId;
+            console.log('WebSocket authenticated via message for user:', decoded.email);
+          } catch (error) {
+            console.log('WebSocket message authentication failed:', error.message);
+            ws.close(4401, 'Authentication failed');
+          }
+          break;
+        case 'status_update':
+          if (!ws.clientId) {
+            ws.close(4401, 'Not authenticated');
+            return;
+          }
+          handleStatusUpdate(parsedMessage.data);
+          break;
+        case 'command_response':
+          if (!ws.clientId) {
+            ws.close(4401, 'Not authenticated');
+            return;
+          }
+          handleCommandResponse(parsedMessage.data);
+          break;
+        default:
+          console.log('Unknown message type:', parsedMessage.type);
+      }
+    } catch (error) {
+      console.error('Error processing message');
+      ws.close(4400, 'Invalid message');
+    }
+  });
+});
+
+// Modify the authenticateWSConnection function to store the token
 const authenticateWSConnection = (req, callback) => {
-  const token = req.headers['sec-websocket-protocol'];
-  
-  if (!token) {
-    console.log('WebSocket connection rejected: No token provided');
-    callback(new Error('Unauthorized'));
-    return;
-  }
-  
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'default-secret-key');
-    req.user = decoded;
-    callback(null);
+    let token = null;
+    
+    // Extract token from Sec-WebSocket-Protocol header
+    const protocols = req.headers['sec-websocket-protocol'];
+    if (protocols) {
+      const jwtProtocol = protocols.split(', ').find(p => p.startsWith('jwt.'));
+      if (jwtProtocol) {
+        token = jwtProtocol.substring(4); // Remove 'jwt.' prefix
+      }
+    }
+    
+    if (!token) {
+      console.log('WebSocket connection rejected: No token provided');
+      callback(new Error('Unauthorized'));
+      return;
+    }
+    
+    try {
+      // Use the same verification options as HTTP endpoints
+      const decoded = jwt.verify(token, process.env.JWT_SECRET, {
+        algorithms: ['HS256'],
+        audience: 'player-dashboard-api',
+        issuer: 'player-dashboard',
+        clockTolerance: 30
+      });
+
+      // Comprehensive token validation
+      if (!decoded.sub || !decoded.email || !decoded.role) {
+        console.log('WebSocket token missing required claims');
+        callback(new Error('Invalid token format'));
+        return;
+      }
+
+      // Store user info and token in request object
+      req.user = {
+        id: decoded.sub,
+        email: decoded.email,
+        role: decoded.role,
+        company_id: decoded.company_id
+      };
+      req.token = token; // Store the token for later use
+      
+      console.log('WebSocket authenticated for user:', decoded.email);
+      callback(null);
+    } catch (error) {
+      console.log('WebSocket token verification failed:', error.message);
+      callback(new Error('Invalid token'));
+    }
   } catch (error) {
-    console.log('WebSocket connection rejected: Invalid token');
-    callback(new Error('Unauthorized'));
+    console.log('WebSocket authentication error:', error.message);
+    callback(new Error('Authentication failed'));
   }
 };
 
-// Message validation
+// Message validation with enhanced security
 const validateMessage = (message) => {
-  // Validate message structure
   if (!message || typeof message !== 'object') {
     return false;
   }
 
-  // Validate message type
   if (!message.type || typeof message.type !== 'string') {
     return false;
   }
 
-  // Validate specific message types
+  // Enhanced message validation
   switch (message.type) {
+    case 'authenticate':
+      return (
+        message.token && 
+        typeof message.token === 'string' &&
+        message.timestamp && 
+        typeof message.timestamp === 'number' &&
+        message.clientId &&
+        typeof message.clientId === 'string' &&
+        // Ensure timestamp is recent (within last 5 minutes)
+        Date.now() - message.timestamp < 5 * 60 * 1000
+      );
     case 'status_update':
       return message.data && typeof message.data === 'object';
     case 'command_response':
-      return message.data && typeof message.data === 'object' && 
-             typeof message.data.commandId === 'string';
+      return (
+        message.data && 
+        typeof message.data === 'object' &&
+        typeof message.data.commandId === 'string'
+      );
     default:
       return false;
   }
@@ -293,22 +731,12 @@ const handleCommandResponse = (data) => {
 // API Routes
 
 // Company routes
-app.get('/api/companies', async (req, res) => {
+app.get('/api/companies', authenticateToken, authorize('superadmin', 'bedrijfsadmin'), async (req, res) => {
   try {
-    let userData = null;
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
-    
-    if (token) {
-      try {
-        userData = jwt.verify(token, process.env.JWT_SECRET || 'default-secret-key');
-      } catch (error) {
-        // Continue without authentication
-      }
-    }
+    let userData = req.user;
     
     // If user is not superadmin, only return their company
-    if (userData && userData.role !== 'superadmin' && userData.company_id) {
+    if (userData.role !== 'superadmin' && userData.company_id) {
       const company = await Company.findOne({ company_id: userData.company_id });
       return res.json(company ? [company] : []);
     }
@@ -365,25 +793,14 @@ app.delete('/api/companies/:id', authenticateToken, async (req, res) => {
 });
 
 // Player routes
-app.get('/api/players', async (req, res) => {
+app.get('/api/players', authenticateToken, authorize('superadmin', 'bedrijfsadmin', 'user'), async (req, res) => {
   try {
-    let userData = null;
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
-    
-    if (token) {
-      try {
-        userData = jwt.verify(token, process.env.JWT_SECRET || 'default-secret-key');
-      } catch (error) {
-        // Continue without authentication
-      }
-    }
-    
+    let userData = req.user;
     const { company_id } = req.query;
     let query = {};
     
     // If company_id is provided or user is not superadmin, filter by company
-    if (company_id || (userData && userData.role !== 'superadmin' && userData.company_id)) {
+    if (company_id || (userData.role !== 'superadmin' && userData.company_id)) {
       query.company_id = company_id || userData.company_id;
     }
     
@@ -523,25 +940,14 @@ app.post('/api/players/:id/commands', authenticateToken, async (req, res) => {
 });
 
 // User routes
-app.get('/api/users', async (req, res) => {
+app.get('/api/users', authenticateToken, authorize('superadmin', 'bedrijfsadmin'), async (req, res) => {
   try {
-    let userData = null;
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
-    
-    if (token) {
-      try {
-        userData = jwt.verify(token, process.env.JWT_SECRET || 'default-secret-key');
-      } catch (error) {
-        // Continue without authentication
-      }
-    }
-    
+    let userData = req.user;
     const { company_id } = req.query;
     let query = {};
     
     // If company_id is provided or user is not superadmin, filter by company
-    if (company_id || (userData && userData.role !== 'superadmin' && userData.company_id)) {
+    if (company_id || (userData.role !== 'superadmin' && userData.company_id)) {
       query.company_id = company_id || userData.company_id;
     }
     
@@ -604,54 +1010,154 @@ app.delete('/api/users/:userId', authenticateToken, async (req, res) => {
   }
 });
 
-// Auth routes
-app.post('/api/auth/login', async (req, res) => {
+// Login endpoint
+app.post('/api/auth/login', loginLimiter, async (req, res) => {
   try {
+    console.log('Login attempt received:', { email: req.body.email });
     const { email, password } = req.body;
 
     // Input validation
     if (!email || !password) {
+      console.log('Missing credentials:', { email: !!email, password: !!password });
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    // Find user in MongoDB
-    const user = await User.findOne({ email: email.toLowerCase() });
+    // Find user
+    const user = await User.findOne({ 
+      email: email.toLowerCase(),
+      isActive: true
+    });
+
     if (!user) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      return res.status(401).json({ error: 'Invalid email or password' });
     }
 
     // Verify password
-    if (!user.verifyPassword(password)) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+    const isValid = await user.verifyPassword(password);
+    if (!isValid) {
+      return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    // Generate JWT token
-    const token = jwt.sign(
-      {
-        id: user._id,
-        email: user.email,
-        role: user.role,
-        company_id: user.company_id
-      },
-      process.env.JWT_SECRET || 'default-secret-key',
-      { expiresIn: '24h' }
-    );
+    // Check if 2FA is enabled
+    const twoFAStatus = await get2FAStatus(user._id);
+    if (twoFAStatus.enabled) {
+      const tempToken = jwt.sign(
+        { 
+          id: user._id, 
+          requires2FA: true,
+          email: user.email
+        },
+        process.env.JWT_SECRET,
+        { expiresIn: '5m' }
+      );
+      return res.json({ requires2FA: true, tempToken });
+    }
 
+    // Generate access token
+    const token = generateToken(user);
+    
+    // Generate refresh token
+    const refreshToken = await RefreshToken.generateRefreshToken(user._id);
+
+    console.log('Login successful:', { userId: user._id, email: user.email });
+    
     res.json({
+      token,
+      refreshToken: refreshToken.token,
       user: {
         id: user._id,
         email: user.email,
         role: user.role,
         company_id: user.company_id
-      },
-      token
+      }
     });
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
+// New refresh token endpoint
+app.post('/api/auth/refresh-token', async (req, res) => {
+  try {
+    const { refreshToken } = req.body;
+    
+    if (!refreshToken) {
+      return res.status(400).json({ error: 'Refresh token is required' });
+    }
+
+    // Find the refresh token in the database
+    const savedToken = await RefreshToken.findOne({ token: refreshToken });
+    
+    if (!savedToken || !savedToken.isActive()) {
+      return res.status(401).json({ error: 'Invalid or expired refresh token' });
+    }
+
+    // Get user information
+    const user = await User.findById(savedToken.user);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Generate new tokens
+    const newAccessToken = generateToken(user);
+    const newRefreshToken = await RefreshToken.generateRefreshToken(user._id);
+
+    // Revoke the old refresh token
+    savedToken.revokedAt = new Date();
+    savedToken.replacedByToken = newRefreshToken.token;
+    await savedToken.save();
+
+    res.json({
+      token: newAccessToken,
+      refreshToken: newRefreshToken.token,
+      user: {
+        id: user._id,
+        email: user.email,
+        role: user.role,
+        company_id: user.company_id
+      }
+    });
+  } catch (error) {
+    console.error('Refresh token error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Add a function to force-disconnect WebSocket connections for a user
+const disconnectUserSessions = async (userId) => {
+  console.log(`Disconnecting all WebSocket sessions for user ${userId}`);
+  for (const [ws, connInfo] of ACTIVE_CONNECTIONS.entries()) {
+    if (connInfo.userId === userId) {
+      ws.close(4401, 'Session terminated by server');
+    }
+  }
+};
+
+// Modify the logout endpoint to disconnect WebSocket sessions
+app.post('/api/auth/logout', authenticateToken, async (req, res) => {
+  try {
+    // Add the current access token to the denylist
+    const exp = Math.floor(Date.now() / 1000) + (15 * 60); // 15 minutes from now
+    await addToDenylist(req.user.jti, exp);
+
+    // Disconnect all WebSocket sessions for this user
+    await disconnectUserSessions(req.user.id);
+
+    // If refresh token is provided, revoke it
+    const { refreshToken } = req.body;
+    if (refreshToken) {
+      await RefreshToken.revokeToken(refreshToken);
+    }
+
+    res.json({ message: 'Logged out successfully' });
+  } catch (error) {
+    console.error('Logout error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Auth routes
 app.post('/api/auth/register', async (req, res) => {
   try {
     const { email, password, registrationToken } = req.body;
@@ -692,7 +1198,7 @@ app.post('/api/auth/register', async (req, res) => {
     }
 
     // Set password and activate account
-    user.setPassword(password);
+    await user.setPassword(password);
     user.isActive = true;
     user.registrationToken = undefined;
     user.registrationTokenExpires = undefined;
@@ -701,19 +1207,10 @@ app.post('/api/auth/register', async (req, res) => {
     
     console.log('✅ User registration completed:', { email, role: user.role });
 
-    // Generate JWT token
-    const token = jwt.sign(
-      { 
-        id: user._id,
-        email: user.email,
-        role: user.role,
-        company_id: user.company_id
-      },
-      process.env.JWT_SECRET || 'default-secret-key',
-      { expiresIn: '24h' }
-    );
+    // Generate JWT token using the consistent token generation function
+    const token = generateToken(user);
 
-    return res.status(201).json({
+    res.json({
       user: {
         id: user._id,
         email: user.email,
@@ -737,6 +1234,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     
     // Enhanced input validation
     if (!email) {
+      console.log('❌ Missing email in request');
       return res.status(400).json({
         error: 'Email is required',
         field: 'email',
@@ -747,6 +1245,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
+      console.log('❌ Invalid email format:', email);
       return res.status(400).json({
         error: 'Invalid email format',
         field: 'email',
@@ -756,64 +1255,75 @@ app.post('/api/auth/forgot-password', async (req, res) => {
 
     console.log(`📧 Processing password reset for email: ${email.toLowerCase()}`);
 
-    // Rate limiting check (you might want to implement a proper rate limiter)
-    const rateLimitKey = `pwd_reset_${email.toLowerCase()}`;
-    // TODO: Implement rate limiting here if needed
+    try {
+      // Find user in MongoDB
+      const user = await User.findOne({ email: email.toLowerCase() });
+      console.log('User found:', user ? 'Yes' : 'No');
 
-    // Find user in MongoDB
-    const user = await User.findOne({ email: email.toLowerCase() });
+      if (!user) {
+        console.log(`⚠️ User with email ${email} not found in database`);
+        // For security, we still return a success message
+        return res.json({
+          success: true,
+          message: 'Als er een account bestaat met dit e-mailadres, ontvang je binnen enkele minuten een e-mail met instructies om je wachtwoord te resetten.'
+        });
+      }
 
-    if (!user) {
-      console.log(`⚠️ User with email ${email} not found in database`);
-      // For security, we still return a success message
+      // Check if a reset token was recently generated (within last 5 minutes)
+      const cooldownPeriod = 5 * 60 * 1000; // 5 minutes in milliseconds
+      if (user.resetPasswordExpires && user.resetPasswordExpires.getTime() - Date.now() > (60 * 60 * 1000 - cooldownPeriod)) {
+        console.log('⚠️ Reset token recently generated, enforcing cooldown');
+        return res.status(429).json({
+          error: 'Too many requests',
+          message: 'Er is recent al een reset link verzonden. Wacht enkele minuten voordat je het opnieuw probeert.',
+          retryAfter: Math.ceil((user.resetPasswordExpires.getTime() - Date.now() - (60 * 60 * 1000 - cooldownPeriod)) / 1000)
+        });
+      }
+
+      console.log('Generating reset token...');
+      // Generate reset token
+      const resetToken = user.generateResetToken();
+      console.log('Reset token generated:', resetToken);
+      
+      console.log('Saving user...');
+      await user.save();
+      console.log('User saved successfully');
+
+      console.log(`✅ Reset token generated for user: ${email}`);
+
+      // Send the email
+      console.log('Sending password reset email...');
+      const emailResult = await sendPasswordResetEmail(email, resetToken);
+      console.log('Email result:', emailResult);
+      
+      if (!emailResult.success) {
+        console.error('Failed to send password reset email:', emailResult.error);
+        return res.status(500).json({
+          error: 'Failed to send email',
+          message: 'Er is een probleem opgetreden bij het verzenden van de e-mail. Probeer het later opnieuw.'
+        });
+      }
+
+      // In development, return token for testing
+      if (process.env.NODE_ENV === 'development') {
+        return res.json({ 
+          success: true,
+          message: 'Er is een e-mail verzonden met instructies om je wachtwoord te resetten.',
+          resetToken: resetToken // Only in development
+        });
+      }
+
       return res.json({
         success: true,
         message: 'Als er een account bestaat met dit e-mailadres, ontvang je binnen enkele minuten een e-mail met instructies om je wachtwoord te resetten.'
       });
+    } catch (dbError) {
+      console.error('❌ Database operation error:', dbError);
+      throw dbError;
     }
-
-    // Check if a reset token was recently generated (within last 5 minutes)
-    const cooldownPeriod = 5 * 60 * 1000; // 5 minutes in milliseconds
-    if (user.resetPasswordExpires && user.resetPasswordExpires.getTime() - Date.now() > (60 * 60 * 1000 - cooldownPeriod)) {
-      return res.status(429).json({
-        error: 'Too many requests',
-        message: 'Er is recent al een reset link verzonden. Wacht enkele minuten voordat je het opnieuw probeert.',
-        retryAfter: Math.ceil((user.resetPasswordExpires.getTime() - Date.now() - (60 * 60 * 1000 - cooldownPeriod)) / 1000)
-      });
-    }
-
-    // Generate reset token
-    const resetToken = user.generateResetToken();
-    await user.save();
-
-    console.log(`✅ Reset token generated for user: ${email}`);
-
-    // Send the email
-    const emailResult = await sendPasswordResetEmail(email, resetToken);
-    
-    if (!emailResult.success) {
-      console.error('Failed to send password reset email:', emailResult.error);
-      return res.status(500).json({
-        error: 'Failed to send email',
-        message: 'Er is een probleem opgetreden bij het verzenden van de e-mail. Probeer het later opnieuw.'
-      });
-    }
-
-    // In development, return token for testing
-    if (process.env.NODE_ENV === 'development') {
-      return res.json({ 
-        success: true,
-        message: 'Er is een e-mail verzonden met instructies om je wachtwoord te resetten.',
-        resetToken: resetToken // Only in development
-      });
-    }
-
-    return res.json({
-      success: true,
-      message: 'Als er een account bestaat met dit e-mailadres, ontvang je binnen enkele minuten een e-mail met instructies om je wachtwoord te resetten.'
-    });
   } catch (error) {
     console.error('❌ Password reset error:', error);
+    console.error('Error stack:', error.stack);
     res.status(500).json({
       error: 'Internal server error',
       message: 'Er is een onverwachte fout opgetreden. Probeer het later opnieuw.'
@@ -821,21 +1331,23 @@ app.post('/api/auth/forgot-password', async (req, res) => {
   }
 });
 
-// Password reset endpoint
+// Reset password endpoint
 app.post('/api/auth/reset-password', async (req, res) => {
   try {
-    console.log('🔐 Password reset endpoint hit with body:', req.body);
-    const { token, password } = req.body;
-    
-    if (!token || !password) {
-      console.log('⚠️ Missing token or password in request');
+    const { token: resetToken, password } = req.body;
+
+    if (!resetToken || !password) {
       return res.status(400).json({ error: 'Token and password are required' });
     }
 
-    // Validate token format (40 characters hex)
-    if (!/^[a-f0-9]{40}$/.test(token)) {
-      console.log('❌ Invalid token format:', token);
-      return res.status(400).json({ error: 'Invalid or expired reset token' });
+    // Find user with valid reset token
+    const user = await User.findOne({
+      resetPasswordToken: resetToken,
+      resetPasswordExpires: { $gt: Date.now() }
+    });
+
+    if (!user) {
+      return res.status(400).json({ error: 'Invalid or expired password reset token' });
     }
 
     // Validate password strength
@@ -847,40 +1359,23 @@ app.post('/api/auth/reset-password', async (req, res) => {
       });
     }
 
-    // Find user with matching reset token that hasn't expired
-    const user = await User.findOne({
-      resetPasswordToken: token,
-      resetPasswordExpires: { $gt: Date.now() }
-    });
-
-    if (!user) {
-      console.log('❌ No user found with valid token:', token);
-      return res.status(400).json({ error: 'Invalid or expired reset token' });
-    }
-
-    console.log(`✅ User found with token: ${user.email}`);
-
-    // Update password
-    user.setPassword(password);
-    
-    // Clear reset token fields
+    // Set new password and clear reset token
+    await user.setPassword(password);
     user.resetPasswordToken = undefined;
     user.resetPasswordExpires = undefined;
+    user.isActive = true;
+    user.status = 'active';
 
     await user.save();
-    console.log(`🔑 Password updated for user: ${user.email}`);
+    console.log(`🔑 Password updated for user:`, {
+      email: user.email,
+      hasPasswordHash: !!user.passwordHash,
+      isActive: user.isActive,
+      status: user.status
+    });
     
-    // Generate new JWT token for automatic login
-    const jwtToken = jwt.sign(
-      { 
-        id: user._id,
-        email: user.email,
-        role: user.role,
-        company_id: user.company_id
-      },
-      process.env.JWT_SECRET || 'default-secret-key',
-      { expiresIn: '24h' }
-    );
+    // Generate JWT token using the consistent token generation function
+    const jwtToken = generateToken(user);
 
     return res.json({
       message: 'Password has been reset successfully',
@@ -899,7 +1394,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
 });
 
 // Registration invitation endpoint
-app.post('/api/auth/register-invitation', authenticateToken, async (req, res) => {
+app.post('/api/auth/register-invitation', authenticateToken, authorize('superadmin', 'bedrijfsadmin'), async (req, res) => {
   try {
     console.log('User from token:', req.user);
     const { email, role, company_id } = req.body;
@@ -1049,12 +1544,16 @@ app.post('/api/auth/complete-registration', async (req, res) => {
 
     if (password) {
       // Validate password
-      if (password.length < 8) {
-        return res.status(400).json({ error: 'Password must be at least 8 characters long' });
+      const { isValid, errors } = validatePassword(password);
+      if (!isValid) {
+        return res.status(400).json({ 
+          error: 'Password does not meet security requirements',
+          passwordErrors: errors
+        });
       }
 
       // Set password and activate account
-      user.setPassword(password);
+      await user.setPassword(password);
     } else {
       return res.status(400).json({ error: 'Password is required' });
     }
@@ -1063,17 +1562,8 @@ app.post('/api/auth/complete-registration', async (req, res) => {
     await user.save();
     console.log(`✅ Registration completed for user: ${user.email}`);
 
-    // Generate JWT token for automatic login
-    const token = jwt.sign(
-      {
-        id: user._id,
-        email: user.email,
-        role: user.role,
-        company_id: user.company_id
-      },
-      process.env.JWT_SECRET || 'default-secret-key',
-      { expiresIn: '24h' }
-    );
+    // Generate JWT token using the consistent token generation function
+    const token = generateToken(user);
 
     return res.json({
       message: 'Registration completed successfully',
@@ -1086,7 +1576,7 @@ app.post('/api/auth/complete-registration', async (req, res) => {
       token
     });
   } catch (error) {
-    console.error('❌ Complete registration error:', error);
+    console.error('Registration completion error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -1263,7 +1753,8 @@ app.post('/api/users/update-password', authenticateToken, async (req, res) => {
     console.log('Found user:', user.email);
 
     // Verify current password
-    if (!user.verifyPassword(currentPassword)) {
+    const isValidPassword = await user.verifyPassword(currentPassword);
+    if (!isValidPassword) {
       console.log('Invalid current password for user:', user.email);
       return res.status(401).json({ error: 'Huidig wachtwoord is incorrect' });
     }
@@ -1281,7 +1772,7 @@ app.post('/api/users/update-password', authenticateToken, async (req, res) => {
     console.log('New password validation passed');
 
     // Update password
-    user.setPassword(newPassword);
+    await user.setPassword(newPassword);
     await user.save();
     console.log('Password updated successfully for user:', user.email);
 
@@ -1290,6 +1781,255 @@ app.post('/api/users/update-password', authenticateToken, async (req, res) => {
     console.error('Password update error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
+});
+
+// 2FA Routes
+app.post('/api/auth/2fa/generate', authenticateToken, async (req, res) => {
+  try {
+    const result = await generateTOTPSecret(req.user.id);
+    if (result.error) {
+      return res.status(400).json({ error: result.error });
+    }
+    res.json(result);
+  } catch (error) {
+    console.error('Error generating 2FA secret:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/auth/2fa/verify-setup', authenticateToken, async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) {
+      return res.status(400).json({ error: 'Verification code is required' });
+    }
+
+    const result = await verifyTOTPSetup(req.user.id, token);
+    if (result.error) {
+      return res.status(400).json({ error: result.error });
+    }
+    res.json(result);
+  } catch (error) {
+    console.error('Error verifying 2FA setup:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/auth/2fa/verify', authenticateToken, async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) {
+      return res.status(400).json({ error: 'Verification code is required' });
+    }
+
+    const result = await verifyTOTP(req.user.id, token);
+    if (result.error) {
+      return res.status(400).json({ error: result.error });
+    }
+    res.json(result);
+  } catch (error) {
+    console.error('Error verifying 2FA:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/auth/2fa/disable', authenticateToken, async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) {
+      return res.status(400).json({ error: 'Verification code is required' });
+    }
+
+    const result = await disable2FA(req.user.id, token);
+    if (result.error) {
+      return res.status(400).json({ error: result.error });
+    }
+    res.json(result);
+  } catch (error) {
+    console.error('Error disabling 2FA:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/api/auth/2fa/status', authenticateToken, async (req, res) => {
+  try {
+    const result = await get2FAStatus(req.user.id);
+    if (result.error) {
+      return res.status(400).json({ error: result.error });
+    }
+    res.json(result);
+  } catch (error) {
+    console.error('Error getting 2FA status:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// 2FA verification endpoint for login
+app.post('/api/auth/2fa/verify-login', async (req, res) => {
+  try {
+    const { token, tempToken } = req.body;
+
+    if (!token || !tempToken) {
+      return res.status(400).json({ error: 'Verification code and temporary token are required' });
+    }
+
+    // Verify temp token
+    let decoded;
+    try {
+      decoded = jwt.verify(tempToken, process.env.JWT_SECRET);
+    } catch (err) {
+      return res.status(401).json({ error: 'Invalid or expired session' });
+    }
+
+    if (!decoded.requires2FA) {
+      return res.status(400).json({ error: 'Invalid token type' });
+    }
+
+    // Get user and check 2FA status
+    const user = await User.findById(decoded.id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const twoFAStatus = await get2FAStatus(user._id);
+    if (!twoFAStatus.enabled) {
+      return res.status(400).json({ error: '2FA is not enabled for this user' });
+    }
+
+    // Verify 2FA token
+    const result = await verifyTOTP(decoded.id, token);
+    if (result.error) {
+      return res.status(401).json({ error: result.error });
+    }
+
+    // Generate final tokens
+    const accessToken = generateToken(user);
+    const refreshToken = await RefreshToken.generateRefreshToken(user._id);
+
+    // Return user data and tokens
+    res.json({
+      token: accessToken,
+      refreshToken: refreshToken.token,
+      user: {
+        id: user._id,
+        email: user.email,
+        role: user.role,
+        company_id: user.company_id
+      }
+    });
+  } catch (error) {
+    console.error('2FA verification error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Monitoring endpoint
+app.get('/api/monitoring', authenticateToken, authorize('superadmin'), async (req, res) => {
+  try {
+    // Only allow superadmin to access monitoring data
+    if (req.user.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Access denied. Superadmin only.' });
+    }
+
+    // Get memory usage
+    const memory = process.memoryUsage();
+
+    // Get WebSocket stats
+    const wsStats = {
+      totalConnections: wss.clients.size,
+      authenticatedConnections: Array.from(wss.clients).filter(client => client.isAuthenticated).length
+    };
+
+    // Get rate limit stats
+    const rateLimits = {
+      auth: {
+        max: authLimiter.max,
+        current: authLimiter.current,
+        remaining: authLimiter.remaining
+      },
+      query: {
+        max: queryLimiter.max,
+        current: queryLimiter.current,
+        remaining: queryLimiter.remaining
+      },
+      mutation: {
+        max: mutationLimiter.max,
+        current: mutationLimiter.current,
+        remaining: mutationLimiter.remaining
+      }
+    };
+
+    // Calculate API response times (last 5 minutes)
+    const fiveMinutesAgo = Date.now() - (5 * 60 * 1000);
+    const recentRequests = global.requestStats?.filter(stat => stat.timestamp > fiveMinutesAgo) || [];
+    const apiResponse = {
+      avgTime: recentRequests.length > 0 
+        ? recentRequests.reduce((sum, stat) => sum + stat.duration, 0) / recentRequests.length 
+        : 0,
+      errorRate: recentRequests.length > 0
+        ? (recentRequests.filter(stat => stat.status >= 400).length / recentRequests.length) * 100
+        : 0,
+      totalRequests: recentRequests.length
+    };
+
+    // System info
+    const system = {
+      uptime: process.uptime(),
+      memory: {
+        heapTotal: memory.heapTotal,
+        heapUsed: memory.heapUsed,
+        rss: memory.rss
+      },
+      nodeVersion: process.version
+    };
+
+    res.json({
+      timestamp: new Date().toISOString(),
+      system,
+      websocket: wsStats,
+      rateLimits,
+      apiResponse
+    });
+  } catch (error) {
+    console.error('Error fetching monitoring data:', error);
+    res.status(500).json({ error: 'Failed to fetch monitoring data' });
+  }
+});
+
+// Add request tracking for monitoring
+if (!global.requestStats) {
+  global.requestStats = [];
+}
+
+app.use((req, res, next) => {
+  const start = Date.now();
+  
+  // Store original end function
+  const originalEnd = res.end;
+  
+  // Override end function
+  res.end = function(...args) {
+    const duration = Date.now() - start;
+    
+    // Add request stats
+    global.requestStats.push({
+      path: req.path,
+      method: req.method,
+      status: res.statusCode,
+      duration,
+      timestamp: Date.now()
+    });
+    
+    // Keep only last 1000 requests
+    if (global.requestStats.length > 1000) {
+      global.requestStats = global.requestStats.slice(-1000);
+    }
+    
+    // Call original end
+    originalEnd.apply(this, args);
+  };
+  
+  next();
 });
 
 // Start server

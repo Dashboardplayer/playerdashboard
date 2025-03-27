@@ -11,13 +11,21 @@ import {
   CircularProgress,
   FormHelperText,
   IconButton,
-  InputAdornment
+  InputAdornment,
+  Stack
 } from '@mui/material';
-import { Visibility, VisibilityOff } from '@mui/icons-material';
+import { 
+  Visibility, 
+  VisibilityOff,
+  Person as PersonIcon,
+  Security as SecurityIcon,
+  Lock as LockIcon
+} from '@mui/icons-material';
 import { useUser } from '../../contexts/UserContext';
 import { authAPI } from '../../hooks/apiClient';
 import { validatePassword } from '../../utils/passwordValidation';
 import PasswordRequirements from '../Auth/PasswordRequirements';
+import TwoFactorAuth from './TwoFactorAuth';
 
 function Settings() {
   const { profile, updateProfile } = useUser();
@@ -105,162 +113,185 @@ function Settings() {
   }
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Typography variant="h4" gutterBottom>
+    <Box 
+      sx={{ 
+        p: 3,
+        maxWidth: '800px',
+        mx: 'auto',
+        width: '100%'
+      }}
+    >
+      <Typography variant="h4" gutterBottom sx={{ mb: 4 }}>
         Instellingen
       </Typography>
 
-      {/* Account Information */}
-      <Paper sx={{ p: 3, mb: 3 }}>
-        <Typography variant="h6" gutterBottom>
-          Account Informatie
-        </Typography>
-        <Grid container spacing={2}>
-          <Grid item xs={12} sm={6}>
-            <TextField
-              fullWidth
-              label="Email"
-              value={profile.email}
-              disabled
-              variant="outlined"
-            />
-          </Grid>
-          <Grid item xs={12} sm={6}>
-            <TextField
-              fullWidth
-              label="Rol"
-              value={profile.role === 'superadmin' ? 'Super Admin' : 
-                     profile.role === 'bedrijfsadmin' ? 'Bedrijfs Admin' : 
-                     'Gebruiker'}
-              disabled
-              variant="outlined"
-            />
-          </Grid>
-          {profile.company_id && (
-            <Grid item xs={12}>
+      <Stack spacing={3}>
+        {/* Account Information */}
+        <Paper sx={{ p: 3 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
+            <PersonIcon color="primary" />
+            <Typography variant="h6">
+              Account Informatie
+            </Typography>
+          </Box>
+          <Divider sx={{ mb: 3 }} />
+          <Grid container spacing={2}>
+            <Grid item xs={12} sm={6}>
               <TextField
                 fullWidth
-                label="Bedrijfs ID"
-                value={profile.company_id}
+                label="Email"
+                value={profile.email}
                 disabled
                 variant="outlined"
               />
             </Grid>
-          )}
-        </Grid>
-      </Paper>
-
-      {/* Password Reset */}
-      <Paper sx={{ p: 3 }}>
-        <Typography variant="h6" gutterBottom>
-          Wachtwoord Wijzigen
-        </Typography>
-        <form onSubmit={handlePasswordReset}>
-          <Grid container spacing={2}>
-            <Grid item xs={12}>
+            <Grid item xs={12} sm={6}>
               <TextField
                 fullWidth
-                type={showCurrentPassword ? 'text' : 'password'}
-                label="Huidig Wachtwoord"
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-                required
+                label="Rol"
+                value={profile.role === 'superadmin' ? 'Super Admin' : 
+                       profile.role === 'bedrijfsadmin' ? 'Bedrijfs Admin' : 
+                       'Gebruiker'}
+                disabled
                 variant="outlined"
-                InputProps={{
-                  endAdornment: (
-                    <InputAdornment position="end">
-                      <IconButton
-                        aria-label="toggle password visibility"
-                        onClick={handleToggleCurrentPassword}
-                        edge="end"
-                      >
-                        {showCurrentPassword ? <VisibilityOff /> : <Visibility />}
-                      </IconButton>
-                    </InputAdornment>
-                  ),
-                }}
               />
             </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                type={showNewPassword ? 'text' : 'password'}
-                label="Nieuw Wachtwoord"
-                value={newPassword}
-                onChange={handleNewPasswordChange}
-                required
-                variant="outlined"
-                error={newPassword.length > 0 && passwordErrors.length > 0}
-                InputProps={{
-                  endAdornment: (
-                    <InputAdornment position="end">
-                      <IconButton
-                        aria-label="toggle password visibility"
-                        onClick={handleToggleNewPassword}
-                        edge="end"
-                      >
-                        {showNewPassword ? <VisibilityOff /> : <Visibility />}
-                      </IconButton>
-                    </InputAdornment>
-                  ),
-                }}
-              />
-              {newPassword && <PasswordRequirements password={newPassword} />}
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                type={showConfirmPassword ? 'text' : 'password'}
-                label="Bevestig Nieuw Wachtwoord"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                required
-                variant="outlined"
-                error={confirmPassword && newPassword !== confirmPassword}
-                helperText={confirmPassword && newPassword !== confirmPassword ? 
-                  'Wachtwoorden komen niet overeen' : ''}
-                InputProps={{
-                  endAdornment: (
-                    <InputAdornment position="end">
-                      <IconButton
-                        aria-label="toggle password visibility"
-                        onClick={handleToggleConfirmPassword}
-                        edge="end"
-                      >
-                        {showConfirmPassword ? <VisibilityOff /> : <Visibility />}
-                      </IconButton>
-                    </InputAdornment>
-                  ),
-                }}
-              />
-            </Grid>
-            {error && (
+            {profile.company_id && (
               <Grid item xs={12}>
-                <Alert severity="error">{error}</Alert>
+                <TextField
+                  fullWidth
+                  label="Bedrijfs ID"
+                  value={profile.company_id}
+                  disabled
+                  variant="outlined"
+                />
               </Grid>
             )}
-            {success && (
-              <Grid item xs={12}>
-                <Alert severity="success">{success}</Alert>
-              </Grid>
-            )}
-            <Grid item xs={12}>
-              <Button
-                type="submit"
-                variant="contained"
-                disabled={loading || passwordErrors.length > 0 || newPassword !== confirmPassword}
-                sx={{ mt: 2 }}
-              >
-                {loading ? (
-                  <CircularProgress size={24} />
-                ) : (
-                  'Wachtwoord Wijzigen'
-                )}
-              </Button>
-            </Grid>
           </Grid>
-        </form>
-      </Paper>
+        </Paper>
+
+        {/* Two-Factor Authentication */}
+        <TwoFactorAuth />
+
+        {/* Password Reset */}
+        <Paper sx={{ p: 3 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 3 }}>
+            <LockIcon color="primary" />
+            <Typography variant="h6">
+              Wachtwoord Wijzigen
+            </Typography>
+          </Box>
+          <Divider sx={{ mb: 3 }} />
+          <form onSubmit={handlePasswordReset}>
+            <Grid container spacing={2}>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  type={showCurrentPassword ? 'text' : 'password'}
+                  label="Huidig Wachtwoord"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  required
+                  variant="outlined"
+                  error={!!error && error.includes('huidig wachtwoord')}
+                  helperText={error && error.includes('huidig wachtwoord') ? error : ''}
+                  InputProps={{
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton
+                          aria-label="toggle password visibility"
+                          onClick={handleToggleCurrentPassword}
+                          edge="end"
+                        >
+                          {showCurrentPassword ? <VisibilityOff /> : <Visibility />}
+                        </IconButton>
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  type={showNewPassword ? 'text' : 'password'}
+                  label="Nieuw Wachtwoord"
+                  value={newPassword}
+                  onChange={handleNewPasswordChange}
+                  required
+                  variant="outlined"
+                  error={!!passwordErrors.length}
+                  helperText={passwordErrors.length > 0 ? passwordErrors[0] : ''}
+                  InputProps={{
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton
+                          aria-label="toggle password visibility"
+                          onClick={handleToggleNewPassword}
+                          edge="end"
+                        >
+                          {showNewPassword ? <VisibilityOff /> : <Visibility />}
+                        </IconButton>
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+                {newPassword && <PasswordRequirements password={newPassword} />}
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  label="Bevestig Nieuw Wachtwoord"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  required
+                  variant="outlined"
+                  error={!!confirmPassword && newPassword !== confirmPassword}
+                  helperText={confirmPassword && newPassword !== confirmPassword ? 
+                    'Wachtwoorden komen niet overeen' : ''}
+                  InputProps={{
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton
+                          aria-label="toggle password visibility"
+                          onClick={handleToggleConfirmPassword}
+                          edge="end"
+                        >
+                          {showConfirmPassword ? <VisibilityOff /> : <Visibility />}
+                        </IconButton>
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+              </Grid>
+              {error && (
+                <Grid item xs={12}>
+                  <Alert severity="error">{error}</Alert>
+                </Grid>
+              )}
+              {success && (
+                <Grid item xs={12}>
+                  <Alert severity="success">{success}</Alert>
+                </Grid>
+              )}
+              <Grid item xs={12}>
+                <Button
+                  type="submit"
+                  variant="contained"
+                  disabled={loading || passwordErrors.length > 0 || newPassword !== confirmPassword}
+                  sx={{ mt: 2 }}
+                >
+                  {loading ? (
+                    <CircularProgress size={24} />
+                  ) : (
+                    'Wachtwoord Wijzigen'
+                  )}
+                </Button>
+              </Grid>
+            </Grid>
+          </form>
+        </Paper>
+      </Stack>
     </Box>
   );
 }

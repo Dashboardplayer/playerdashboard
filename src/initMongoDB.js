@@ -27,27 +27,17 @@ async function initMongoDB() {
     await initIndexes();
     console.log('✅ MongoDB indexes initialized');
     
-    // Check if the superadmin user exists
-    const superadminExists = await User.findOne({ role: 'superadmin' });
+    // Check if any user exists
+    const userCount = await User.countDocuments();
     
-    if (!superadminExists) {
-      console.log('Creating initial superadmin user...');
-      
-      // Create default superadmin user
-      const superadmin = new User({
-        email: 'admin@example.com', // Change this to your desired default admin email
-        role: 'superadmin'
-      });
-      
-      // Set a default password (this should be changed immediately after first login)
-      superadmin.setPassword('ChangeMe123!');
-      
-      await superadmin.save();
-      console.log('✅ Superadmin user created successfully');
-      console.log('⚠️ DEFAULT CREDENTIALS: admin@example.com / ChangeMe123!');
-      console.log('⚠️ Please change these credentials immediately after first login!');
+    if (userCount === 0) {
+      console.log('\n⚠️ No users found in the database');
+      console.log('Please create a superadmin user through the web interface:');
+      console.log('1. Start the application with `npm run dev`');
+      console.log('2. Navigate to the registration page');
+      console.log('3. Use the CreateUser component to create a superadmin account');
     } else {
-      console.log('✅ Superadmin user already exists, skipping creation');
+      console.log('✅ Users exist in the database');
     }
     
     // Check if we need to import data from Supabase

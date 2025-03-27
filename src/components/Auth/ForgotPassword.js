@@ -1,7 +1,8 @@
 // ForgotPassword.js
 import React, { useState } from 'react';
-import { Container, Box, Typography, TextField, Button, Alert, Paper, Link, useTheme, useMediaQuery } from '@mui/material';
+import { Container, Box, Typography, TextField, Button, Alert, Paper, Link, useTheme, useMediaQuery, CircularProgress } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
+import { LockOutlined } from '@mui/icons-material';
 
 function ForgotPassword() {
   const [email, setEmail] = useState('');
@@ -65,152 +66,193 @@ function ForgotPassword() {
       sx={{
         minHeight: '100vh',
         display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        backgroundColor: '#f4f4f4',
-        pt: { xs: 2, sm: 4 },
-        px: { xs: 2, sm: 0 }
+        alignItems: 'flex-start',
+        justifyContent: 'center',
+        background: 'linear-gradient(135deg, #f5f7fa 0%, #e4e8eb 100%)',
+        p: { xs: 2, sm: 4 },
+        pt: { xs: 4, sm: 8 }
       }}
     >
-      {/* Logo Container */}
-      <Box sx={{ mb: { xs: 3, sm: 4 } }}>
-        <img 
-          src="/logo192.png" 
-          alt="Display Beheer Logo" 
-          style={{ 
-            height: isMobile ? '32px' : '40px',
-            width: 'auto'
-          }} 
-        />
-      </Box>
-
-      {/* Main Card */}
-      <Paper
-        elevation={3}
+      <Container 
+        maxWidth="sm"
         sx={{
-          width: '100%',
-          maxWidth: '480px',
-          borderRadius: 2,
-          p: { xs: 3, sm: 4 },
-          backgroundColor: 'white'
+          mt: { xs: 4, sm: 6, md: 8 },
+          mb: 4
         }}
       >
-        <Typography
-          variant="h4"
-          component="h1"
+        <Box
           sx={{
-            mb: 2,
-            color: '#1e3a5f',
-            fontWeight: 500,
-            fontSize: { xs: '1.75rem', sm: '2.125rem' }
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            mb: 4
           }}
         >
-          Forgot your password
-        </Typography>
-
-        <Typography
-          variant="body1"
-          sx={{
-            mb: { xs: 3, sm: 4 },
-            color: '#475569',
-            fontSize: { xs: '0.875rem', sm: '1rem' }
-          }}
-        >
-          Please enter the email address you'd like your password reset information sent to
-        </Typography>
-
-        <Box component="form" onSubmit={handleResetPassword} sx={{ width: '100%' }}>
           <Typography
-            variant="subtitle1"
+            variant="h4"
+            component="h1"
             sx={{
+              fontWeight: 700,
+              color: '#1a365d',
               mb: 1,
-              color: '#475569',
-              fontWeight: 500,
-              fontSize: { xs: '0.875rem', sm: '1rem' }
+              textAlign: 'center'
             }}
           >
-            Enter email address
+            DisplayBeheer.nl
           </Typography>
-          
-          <TextField
-            fullWidth
-            id="email"
-            name="email"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            error={isError}
-            sx={{
-              mb: 3,
-              '& .MuiOutlinedInput-root': {
-                borderRadius: 1,
-                height: { xs: '48px', sm: '56px' },
-                '&.Mui-focused fieldset': {
-                  borderColor: '#1a73e8',
-                },
-              },
-              '& .MuiOutlinedInput-input': {
-                fontSize: { xs: '0.875rem', sm: '1rem' },
-                padding: { xs: '12px 16px', sm: '16px 20px' }
-              }
-            }}
-          />
+        </Box>
 
-          <Button
-            type="submit"
-            fullWidth
-            variant="contained"
-            disabled={isLoading}
+        <Paper
+          elevation={3}
+          sx={{
+            p: { xs: 3, sm: 4 },
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            borderRadius: 2,
+            background: 'linear-gradient(to bottom, #ffffff, #f8f9fa)',
+            width: '100%',
+            maxWidth: '440px',
+            mx: 'auto',
+            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+          }}
+        >
+          <Box
             sx={{
-              py: { xs: 1.25, sm: 1.5 },
-              mb: 2,
-              backgroundColor: '#1e3a5f',
-              borderRadius: 1,
-              textTransform: 'none',
-              fontSize: { xs: '0.875rem', sm: '1rem' },
-              '&:hover': {
-                backgroundColor: '#15293f',
-              },
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              width: '100%'
             }}
           >
-            Request reset link
-          </Button>
-
-          {/* Back to Login Link */}
-          <Box sx={{ display: 'flex', justifyContent: 'center', mb: 3 }}>
-            <Link
-              component="button"
-              onClick={() => navigate('/')}
+            <LockOutlined
               sx={{
-                color: '#1a73e8',
-                textDecoration: 'none',
-                fontSize: { xs: '0.875rem', sm: '1rem' },
-                py: { xs: 0.5, sm: 0.75 },
-                '&:hover': {
-                  textDecoration: 'underline',
-                },
+                fontSize: 24,
+                mb: 2,
+                color: '#1a365d',
+                p: 1.5,
+                borderRadius: '50%',
+                backgroundColor: 'rgba(26, 54, 93, 0.1)'
+              }}
+            />
+            
+            <Typography
+              variant="h6"
+              sx={{
+                mb: 1,
+                fontWeight: 600,
+                color: '#1a365d'
               }}
             >
-              Back To Login
-            </Link>
-          </Box>
-
-          {statusMessage && (
-            <Alert 
-              severity={isError ? 'error' : 'success'} 
-              sx={{ 
+              Wachtwoord vergeten
+            </Typography>
+            
+            <Typography
+              variant="body2"
+              sx={{
                 mb: 3,
-                borderRadius: 1,
-                '& .MuiAlert-message': {
-                  fontSize: { xs: '0.875rem', sm: '1rem' }
-                }
+                color: '#4a5568',
+                textAlign: 'center',
+                maxWidth: '400px'
               }}
             >
-              {statusMessage}
-            </Alert>
-          )}
-        </Box>
-      </Paper>
+              Voer je e-mailadres in om een link te ontvangen waarmee je je wachtwoord kunt resetten.
+            </Typography>
+
+            <Box
+              component="form"
+              onSubmit={handleResetPassword}
+              sx={{
+                width: '100%',
+                mt: 1
+              }}
+            >
+              <TextField
+                margin="normal"
+                required
+                fullWidth
+                id="email"
+                label="Email"
+                name="email"
+                autoComplete="email"
+                autoFocus
+                size="small"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                error={isError}
+                disabled={isLoading}
+                InputProps={{
+                  sx: {
+                    borderRadius: 1,
+                    backgroundColor: 'background.paper'
+                  }
+                }}
+              />
+
+              <Button
+                type="submit"
+                fullWidth
+                variant="contained"
+                disabled={isLoading}
+                sx={{
+                  mt: 3,
+                  mb: 2,
+                  py: 1,
+                  borderRadius: 1,
+                  textTransform: 'none',
+                  fontSize: '0.9rem',
+                  fontWeight: 500,
+                  boxShadow: 2,
+                  backgroundColor: '#1a365d',
+                  '&:hover': {
+                    backgroundColor: '#2c5282',
+                    boxShadow: 4
+                  }
+                }}
+              >
+                {isLoading ? (
+                  <CircularProgress size={20} />
+                ) : (
+                  'Reset wachtwoord'
+                )}
+              </Button>
+
+              <Box sx={{ display: 'flex', justifyContent: 'center', mb: 3 }}>
+                <Link
+                  component="button"
+                  onClick={() => navigate('/')}
+                  sx={{
+                    color: '#1a365d',
+                    textDecoration: 'none',
+                    fontSize: '0.875rem',
+                    py: { xs: 0.5, sm: 0.75 },
+                    '&:hover': {
+                      textDecoration: 'underline',
+                    },
+                  }}
+                >
+                  Terug naar inloggen
+                </Link>
+              </Box>
+
+              {statusMessage && (
+                <Alert 
+                  severity={isError ? 'error' : 'success'} 
+                  sx={{ 
+                    mb: 3,
+                    borderRadius: 1,
+                    '& .MuiAlert-message': {
+                      fontSize: { xs: '0.875rem', sm: '1rem' }
+                    }
+                  }}
+                >
+                  {statusMessage}
+                </Alert>
+              )}
+            </Box>
+          </Box>
+        </Paper>
+      </Container>
     </Box>
   );
 }

@@ -107,10 +107,10 @@ function SignUp() {
     }
 
     try {
-      const { data, error: signUpError } = await authAPI.register({
+      const { data, error: signUpError } = await authAPI.completeRegistration({
+        token,
         email,
-        password,
-        registrationToken: token
+        password
       });
 
       if (signUpError) {

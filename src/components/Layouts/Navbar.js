@@ -43,7 +43,8 @@ import {
   SupervisorAccount,
   Person,
   Add,
-  AccountCircle
+  AccountCircle,
+  Timeline
 } from '@mui/icons-material';
 
 function NavBar() {
@@ -97,6 +98,15 @@ function NavBar() {
         text: 'User Management',
         icon: <Group />,
         path: '/users'
+      });
+    }
+
+    // Performance monitoring for superadmin only
+    if (profile?.role === 'superadmin') {
+      items.push({
+        text: 'Performance',
+        icon: <Timeline />,
+        path: '/performance'
       });
     }
 

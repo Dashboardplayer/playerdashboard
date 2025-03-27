@@ -71,23 +71,23 @@ const mongoClient = {
     
     // Get current session
     getSession: async () => {
-      const token = localStorage.getItem('authToken');
+      const user = browserAuth.getUser();
       
-      if (!token) {
+      if (!user || !user.token) {
         return { data: { session: null }, error: null };
       }
       
-      const decoded = authService.verifyToken(token);
+      const decoded = authService.verifyToken(user.token);
       
       if (!decoded) {
-        localStorage.removeItem('authToken');
+        browserAuth.clearAuth();
         return { data: { session: null }, error: null };
       }
       
       return { 
         data: { 
           session: { 
-            access_token: token,
+            access_token: user.token,
             user: { id: decoded.id }
           } 
         }, 
@@ -97,16 +97,16 @@ const mongoClient = {
     
     // Get current user
     getUser: async () => {
-      const token = localStorage.getItem('authToken');
+      const user = browserAuth.getUser();
       
-      if (!token) {
+      if (!user || !user.token) {
         return { data: { user: null }, error: null };
       }
       
-      const decoded = authService.verifyToken(token);
+      const decoded = authService.verifyToken(user.token);
       
       if (!decoded) {
-        localStorage.removeItem('authToken');
+        browserAuth.clearAuth();
         return { data: { user: null }, error: null };
       }
       
@@ -122,17 +122,17 @@ const mongoClient = {
     // Auth state change listener
     onAuthStateChange: (callback) => {
       const checkAuth = async () => {
-        const token = localStorage.getItem('authToken');
+        const user = browserAuth.getUser();
         
-        if (!token) {
+        if (!user || !user.token) {
           callback('SIGNED_OUT', null);
           return;
         }
         
-        const decoded = authService.verifyToken(token);
+        const decoded = authService.verifyToken(user.token);
         
         if (!decoded) {
-          localStorage.removeItem('authToken');
+          browserAuth.clearAuth();
           callback('SIGNED_OUT', null);
           return;
         }
@@ -146,7 +146,7 @@ const mongoClient = {
         
         callback('SIGNED_IN', { 
           user: userResult.user,
-          access_token: token
+          access_token: user.token
         });
       };
       
@@ -155,7 +155,7 @@ const mongoClient = {
       
       // Set up listener for storage events
       const storageListener = (e) => {
-        if (e.key === 'authToken') {
+        if (e.key === 'user') {
           checkAuth();
         }
       };

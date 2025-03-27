@@ -1,0 +1,7 @@
+#Thu Mar 27 03:12:52 CET 2025
+base.0=C\:\\Users\\mootj\\OneDrive\\Bureaublad\\testplayer-nieuw\\android-player\\app\\build\\intermediates\\dex\\debugAndroidTest\\mergeProjectDexDebugAndroidTest\\0\\classes.dex
+base.1=C\:\\Users\\mootj\\OneDrive\\Bureaublad\\testplayer-nieuw\\android-player\\app\\build\\intermediates\\dex\\debugAndroidTest\\mergeProjectDexDebugAndroidTest\\5\\classes.dex
+path.0=0/classes.dex
+path.1=5/classes.dex
+renamed.0=classes.dex
+renamed.1=classes2.dex

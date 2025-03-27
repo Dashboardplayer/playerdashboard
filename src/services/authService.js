@@ -3,6 +3,38 @@ import { browserAuth } from '../utils/browserUtils.js';
 import { sendPasswordResetEmail } from './emailService.js';
 import { validatePassword } from '../utils/passwordValidation.js';
 import xss from 'xss';
+import { jwtDecode } from 'jwt-decode';
+
+// WebSocket Configuration
+const WS_URL = process.env.NODE_ENV === 'production' 
+  ? `wss://${window.location.host}`
+  : `ws://localhost:5001`;
+
+const MAX_RECONNECT_ATTEMPTS = 5;
+const RECONNECT_DELAY = 3000; // 3 seconds
+
+let ws = null;
+let reconnectAttempts = 0;
+
+// WebSocket message handler
+const handleWebSocketMessage = (message) => {
+  // Ignore heartbeat messages
+  if (message.type === 'heartbeat') return;
+
+  console.log('Received WebSocket message:', message);
+
+  switch (message.type) {
+    case 'auth_expired':
+      browserAuth.clearAuth();
+      window.location.href = '/login';
+      break;
+    case 'user_updated':
+      // Handle user updates
+      break;
+    default:
+      console.log('Unknown message type:', message.type);
+  }
+};
 
 // We'll use browser-compatible auth instead of JWT for client-side
 
@@ -128,6 +160,19 @@ class RateLimiter {
     this.requests.delete(ip);
     this.saveToStorage();
   }
+
+  resetAttempts(ip) {
+    this.requests.delete(ip);
+    this.saveToStorage();
+  }
+
+  increment(ip) {
+    const now = Date.now();
+    const userRequests = this.requests.get(ip) || [];
+    userRequests.push(now);
+    this.requests.set(ip, userRequests);
+    this.saveToStorage();
+  }
 }
 
 export const rateLimiter = new RateLimiter();
@@ -164,206 +209,164 @@ export const registerUser = async (email, password, role, companyId) => {
       return { error: 'Invalid email format' };
     }
 
-    // Validate password strength
-    const { isValid, errors } = validatePassword(password);
-    if (!isValid) {
-      return { error: `Password validation failed: ${errors.join(', ')}` };
-    }
-
-    // Check if user already exists
-    const existingUser = await User.findOne({ email: sanitizedEmail });
-    if (existingUser) {
-      return { error: 'User with this email already exists' };
-    }
-
-    // Create new user
-    const user = new User({
-      email: sanitizedEmail,
-      role: sanitizedRole,
-      company_id: sanitizedCompanyId
+    // Make registration request
+    const response = await fetch('/api/auth/register', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        email: sanitizedEmail,
+        password: password,
+        role: sanitizedRole,
+        company_id: sanitizedCompanyId
+      })
     });
 
-    // Set password (uses the method defined in the User model)
-    await user.setPassword(password);
+    const data = await response.json();
 
-    // Save user to database
-    await user.save();
+    if (!response.ok) {
+      return { error: data.error || 'Registration failed' };
+    }
 
-    // Generate a simple token for the client
-    const userInfo = {
-      id: user._id,
-      email: user.email,
-      role: user.role,
-      company_id: user.company_id
-    };
-    
-    // Generate token and store auth data in browser storage
-    const token = generateToken(userInfo);
-    browserAuth.setAuth(token, userInfo);
+    // Store authentication data if provided
+    if (data.token && data.user) {
+      browserAuth.setAuth(data.token, data.refreshToken, data.user);
+      console.log('User registered successfully:', {
+        id: data.user.id,
+        email: data.user.email,
+        role: data.user.role
+      });
+    }
 
-    return { 
-      user: userInfo, 
-      token 
-    };
+    return { user: data.user, token: data.token, refreshToken: data.refreshToken };
   } catch (error) {
     console.error('Registration error:', error);
     return { error: error.message };
   }
 };
 
-// Login a user
+// Store both tokens
+browserAuth.setAuth = (accessToken, refreshToken, user) => {
+  localStorage.setItem('accessToken', accessToken);
+  localStorage.setItem('refreshToken', refreshToken);
+  localStorage.setItem('user', JSON.stringify(user));
+};
+
+// Clear both tokens
+browserAuth.clearAuth = () => {
+  localStorage.removeItem('accessToken');
+  localStorage.removeItem('refreshToken');
+  localStorage.removeItem('user');
+  window.dispatchEvent(new Event('auth_logout'));
+};
+
+// Get tokens
+browserAuth.getTokens = () => ({
+  accessToken: localStorage.getItem('accessToken'),
+  refreshToken: localStorage.getItem('refreshToken')
+});
+
+// Login a user with enhanced security
 export const loginUser = async (email, password) => {
   try {
-    // Check rate limiting
-    const clientIp = 'client'; // In a real app, you'd get this from the request
-    const warningStatus = rateLimiter.getWarningStatus(clientIp);
-    
-    if (rateLimiter.isRateLimited(clientIp)) {
-      const remainingTime = Math.ceil(rateLimiter.getRemainingTime(clientIp) / 1000 / 60);
-      return { 
-        error: `Too many requests. Please try again in ${remainingTime} minutes.`,
-        warningStatus
+    const response = await fetch('http://localhost:5001/api/auth/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ email, password })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return { error: data.error || 'Login failed' };
+    }
+
+    // Handle 2FA response
+    if (data.requires2FA) {
+      browserAuth.setAuth(data.tempToken, null, { email, requires2FA: true });
+      return {
+        requires2FA: true,
+        tempToken: data.tempToken
       };
     }
 
-    // Add warning status to all responses
-    const createResponse = (data) => ({
-      ...data,
-      warningStatus
-    });
-
-    // Sanitize input
-    const sanitizedEmail = sanitizeInput(email);
-
-    // Validate email format
-    if (!isValidEmail(sanitizedEmail)) {
-      return createResponse({ error: 'Invalid email format' });
+    // Store auth data
+    if (data.token && data.refreshToken && data.user) {
+      browserAuth.setAuth(data.token, data.refreshToken, data.user);
+      initializeWebSocket();
     }
 
-    console.log('Login attempt for:', sanitizedEmail);
-    
-    // Check if we're in browser environment
-    const isBrowser = typeof window !== 'undefined';
-    
-    if (isBrowser) {
-      // In browser, we'll use a special login process
-      // For development/demo purposes, accept the superadmin account with credentials from env variables
-      const adminEmail = process.env.REACT_APP_ADMIN_EMAIL;
-      const adminPassword = process.env.REACT_APP_ADMIN_PASSWORD;
-      
-      if (sanitizedEmail === adminEmail && password === adminPassword) {
-        console.log('Super admin login detected in browser');
-        
-        // Create a user info object for the superadmin
-        const userInfo = {
-          id: 'superadmin-mock-id',
-          email: sanitizedEmail,
-          role: 'superadmin',
-          company_id: null
-        };
-        
-        // Generate token and store in browser storage
-        const token = generateToken(userInfo);
-        browserAuth.setAuth(token, userInfo);
-        
-        return createResponse({
-          user: userInfo,
-          token
-        });
-      }
-    }
-    
-    // Standard flow for both server and browser
-    const user = await User.findOne({ email: sanitizedEmail });
-    
-    if (!user) {
-      console.log('User not found:', sanitizedEmail);
-      return createResponse({ error: 'Invalid email or password' }); // Use generic error message for security
-    }
-
-    // Check if account is locked
-    if (user.isLocked()) {
-      const lockTime = Math.ceil((user.lockUntil - Date.now()) / 1000 / 60);
-      return createResponse({ error: `Account is locked. Please try again in ${lockTime} minutes` });
-    }
-
-    // Verify password with secure comparison
-    const isValid = await user.verifyPassword(password);
-    if (!isValid) {
-      console.log('Invalid password for user:', sanitizedEmail);
-      return createResponse({ error: 'Invalid email or password' }); // Use generic error message for security
-    }
-
-    // Prepare user data
-    const userInfo = {
-      id: user._id,
-      email: user.email,
-      role: user.role,
-      company_id: user.company_id
+    return {
+      user: data.user,
+      token: data.token,
+      refreshToken: data.refreshToken
     };
-    
-    console.log('Login successful for:', sanitizedEmail, 'Role:', user.role);
-    
-    // Generate token and store in browser storage
-    const token = generateToken(userInfo);
-    browserAuth.setAuth(token, userInfo);
-
-    return createResponse({
-      user: userInfo,
-      token
-    });
   } catch (error) {
     console.error('Login error:', error);
-    return { 
-      error: 'An unexpected error occurred',
-      warningStatus: rateLimiter.getWarningStatus('client')
-    };
+    return { error: error.message };
   }
 };
 
-// Generate a proper JWT token
-const generateToken = (userInfo) => {
-  // Create a header
-  const header = {
-    alg: 'HS256',
-    typ: 'JWT'
-  };
+// Refresh access token
+export const refreshAccessToken = async () => {
+  try {
+    const { refreshToken } = browserAuth.getTokens();
+    if (!refreshToken) {
+      throw new Error('No refresh token available');
+    }
 
-  // Create a payload with expiration
-  const payload = {
-    ...userInfo,
-    exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60), // 24 hours from now
-    iat: Math.floor(Date.now() / 1000)
-  };
+    const response = await fetch('http://localhost:5001/api/auth/refresh-token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ refreshToken })
+    });
 
-  // Base64Url encode header and payload
-  const base64Header = btoa(JSON.stringify(header)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
-  const base64Payload = btoa(JSON.stringify(payload)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+    const data = await response.json();
 
-  // Create signature using the same secret as the server
-  const secret = 'default-secret-key'; // This should match the server's JWT_SECRET
-  const signatureInput = `${base64Header}.${base64Payload}`;
-  const signature = btoa(
-    Array.from(
-      new TextEncoder().encode(signatureInput + secret),
-      byte => String.fromCharCode(byte)
-    ).join('')
-  ).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+    if (!response.ok) {
+      throw new Error(data.error || 'Token refresh failed');
+    }
 
-  // Combine all parts
-  return `${base64Header}.${base64Payload}.${signature}`;
+    // Store new tokens
+    browserAuth.setAuth(data.token, data.refreshToken, data.user);
+    return data;
+  } catch (error) {
+    console.error('Token refresh error:', error);
+    browserAuth.clearAuth();
+    window.location.href = '/login';
+    return { error: error.message };
+  }
 };
 
-// Verify token from browser storage
-export const verifyToken = (token) => {
+// Verify token and handle refresh
+export const verifyToken = async () => {
   try {
-    // For browser implementation, check if the token exists in storage
-    const storedToken = browserAuth.getToken();
-    if (storedToken && storedToken === token) {
-      return browserAuth.getUser();
+    const { accessToken, refreshToken } = browserAuth.getTokens();
+    if (!accessToken || !refreshToken) {
+      return null;
     }
-    return null;
+
+    // Check if token is expired
+    const decoded = jwtDecode(accessToken);
+    const currentTime = Date.now() / 1000;
+    
+    if (decoded.exp < currentTime) {
+      // Token is expired, try to refresh
+      const refreshResult = await refreshAccessToken();
+      if (refreshResult.error) {
+        return null;
+      }
+      return refreshResult.user;
+    }
+
+    return browserAuth.getUser();
   } catch (error) {
+    console.error('Token verification error:', error);
     return null;
   }
 };
@@ -371,19 +374,24 @@ export const verifyToken = (token) => {
 // Get user by ID
 export const getUserById = async (userId) => {
   try {
-    const user = await User.findById(userId);
-    if (!user) {
-      return { error: 'User not found' };
+    const user = browserAuth.getUser();
+    if (!user || !user.token) {
+      return { error: 'Not authenticated' };
     }
-    
-    return { 
-      user: {
-        id: user._id,
-        email: user.email,
-        role: user.role,
-        company_id: user.company_id
+
+    const response = await fetch(`http://localhost:5001/api/users/${userId}`, {
+      headers: {
+        'Authorization': `Bearer ${user.token}`
       }
-    };
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return { error: data.error || 'Failed to get user' };
+    }
+
+    return { user: data };
   } catch (error) {
     console.error('Get user error:', error);
     return { error: error.message };
@@ -432,7 +440,7 @@ export const resetPassword = async (resetToken, newPassword) => {
     }
 
     // Set new password
-    user.setPassword(newPassword);
+    await user.setPassword(newPassword);
     
     // Clear reset token fields
     user.resetPasswordToken = undefined;
@@ -444,5 +452,117 @@ export const resetPassword = async (resetToken, newPassword) => {
   } catch (error) {
     console.error('Password reset error:', error);
     return { error: error.message };
+  }
+};
+
+// Initialize WebSocket connection
+function initializeWebSocket() {
+  try {
+    const user = browserAuth.getUser();
+    if (!user || !user.token) {
+      console.log('No authenticated user for WebSocket connection');
+      return;
+    }
+
+    // Close existing connection if any
+    if (ws) {
+      ws.close();
+      ws = null;
+    }
+
+    // Create WebSocket with secure protocol
+    const protocols = [`jwt.${user.token}`]; // Use sub-protocol for token transmission
+    ws = new WebSocket(WS_URL, protocols);
+    
+    ws.onopen = () => {
+      console.log('WebSocket connected successfully');
+      reconnectAttempts = 0; // Reset attempts on successful connection
+      
+      // Send an initial authentication message
+      ws.send(JSON.stringify({ 
+        type: 'authenticate',
+        token: user.token,
+        timestamp: Date.now(),
+        clientId: crypto.randomUUID()
+      }));
+    };
+
+    ws.onclose = (event) => {
+      console.log('WebSocket disconnected:', event.code);
+      
+      // Handle authentication errors
+      if (event.code === 1008) { // Policy violation (e.g., invalid token)
+        browserAuth.clearAuth();
+        window.location.href = '/login';
+        return;
+      }
+
+      // Attempt reconnection if not max attempts
+      if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+        setTimeout(() => {
+          reconnectAttempts++;
+          console.log(`Attempting to reconnect (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`);
+          initializeWebSocket();
+        }, RECONNECT_DELAY);
+      } else {
+        console.log('Max reconnection attempts reached');
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        handleWebSocketMessage(data);
+      } catch (error) {
+        console.error('Error parsing WebSocket message:', error);
+      }
+    };
+  } catch (error) {
+    console.error('Error initializing WebSocket:', error);
+  }
+}
+
+// Re-initialize WebSocket when auth token changes
+window.addEventListener('storage', (event) => {
+  if (event.key === 'user') {
+    const newValue = event.newValue ? JSON.parse(event.newValue) : null;
+    if (newValue && newValue.token) {
+      initializeWebSocket();
+    } else if (ws) {
+      ws.close();
+      ws = null;
+    }
+  }
+});
+
+// Initialize WebSocket on import if user exists
+if (browserAuth.getUser()) {
+  initializeWebSocket();
+}
+
+// Logout user
+export const logoutUser = async () => {
+  try {
+    const { accessToken, refreshToken } = browserAuth.getTokens();
+    
+    if (accessToken) {
+      await fetch('http://localhost:5001/api/auth/logout', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ refreshToken })
+      });
+    }
+  } catch (error) {
+    console.error('Logout error:', error);
+  } finally {
+    browserAuth.clearAuth();
+    window.location.href = '/login';
   }
 };
