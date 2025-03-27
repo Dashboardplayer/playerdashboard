@@ -9,6 +9,7 @@ import os from 'os-browserify/browser';
 import url from 'url';
 import path from 'path-browserify';
 import consoleBrowserify from 'console-browserify';
+import cryptoPolyfill from './crypto-polyfill';
 
 // Safe assignments that won't conflict with browser APIs
 window.Buffer = window.Buffer || Buffer;
@@ -31,26 +32,16 @@ Object.keys(consoleBrowserify).forEach(key => {
 
 // Handle crypto polyfill
 if (typeof window !== 'undefined' && window.crypto) {
-  const cryptoBrowserify = require('crypto-browserify');
-  
-  // Create a new object that includes both native crypto and our polyfill
-  const cryptoPolyfill = {
-    ...cryptoBrowserify,
-    // Preserve any existing native crypto methods
-    ...(window.crypto || {}),
-  };
-
   // Add missing methods from crypto-browserify to window.crypto
-  Object.keys(cryptoBrowserify).forEach(key => {
+  Object.keys(cryptoPolyfill).forEach(key => {
     if (typeof window.crypto[key] === 'undefined') {
       try {
-        if (typeof cryptoBrowserify[key] === 'function') {
-          // For methods, we need to bind to maintain context
+        if (typeof cryptoPolyfill[key] === 'function') {
           Object.defineProperty(window.crypto, key, {
             enumerable: true,
             configurable: true,
             writable: true,
-            value: cryptoBrowserify[key].bind(cryptoBrowserify)
+            value: cryptoPolyfill[key].bind(cryptoPolyfill)
           });
         }
       } catch (e) {
@@ -58,7 +49,4 @@ if (typeof window !== 'undefined' && window.crypto) {
       }
     }
   });
-
-  // Export the polyfill for use in other files
-  window.cryptoPolyfill = cryptoPolyfill;
 } 
