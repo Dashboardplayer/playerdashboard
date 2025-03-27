@@ -97,6 +97,7 @@ const Layout = () => {
 function AppContent() {
   const { setProfile, logout } = useUser();
   const [loading, setLoading] = useState(true);
+  const [notification, setNotification] = useState(null);
 
   // Check for existing session on app load
   useEffect(() => {
@@ -136,11 +137,22 @@ function AppContent() {
 
   // Handle authentication expiration
   useEffect(() => {
-    const handleAuthExpired = () => {
+    const handleAuthExpired = (event) => {
       console.log('Authentication expired, logging out...');
       logout();
-      // You might want to show a message to the user here
-      alert('Your session has expired. Please log in again.');
+      
+      // Show notification with custom message if provided
+      const message = event.detail?.message || 'Your session has expired. Please log in again.';
+      setNotification({
+        type: 'warning',
+        message,
+        show: true
+      });
+
+      // Auto-hide notification after 5 seconds
+      setTimeout(() => {
+        setNotification(null);
+      }, 5000);
     };
 
     window.addEventListener('auth_expired', handleAuthExpired);
@@ -259,9 +271,17 @@ function AppContent() {
   });
 
   return (
-    <React.StrictMode>
+    <div className="app-container">
+      {/* Notification component */}
+      {notification && (
+        <div className={`notification ${notification.type}`}>
+          {notification.message}
+        </div>
+      )}
+      
+      {/* Rest of your app content */}
       <RouterProvider router={router} />
-    </React.StrictMode>
+    </div>
   );
 }
 

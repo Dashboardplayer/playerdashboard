@@ -29,6 +29,16 @@ const isTokenExpired = (token) => {
   }
 };
 
+const handleTokenExpiration = () => {
+  console.log('Token expired, clearing auth and cache...');
+  clearAllCache();
+  browserAuth.clearAuth();
+  window.dispatchEvent(new CustomEvent('auth_expired', {
+    detail: { message: 'Your session has expired. Please log in again.' }
+  }));
+  window.location.href = '/login';
+};
+
 const clearAllCache = () => {
   console.log('Clearing all cached data...');
   // Clear all cached data
@@ -40,14 +50,9 @@ const clearAllCache = () => {
 };
 
 const checkAndClearCacheIfNeeded = () => {
-  const token = localStorage.getItem('authToken');
+  const token = browserAuth.getToken();
   if (!token || isTokenExpired(token)) {
-    console.log('Token expired or invalid, clearing cache...');
-    clearAllCache();
-    if (token) {
-      localStorage.removeItem('authToken');
-      window.dispatchEvent(new CustomEvent('auth_expired'));
-    }
+    handleTokenExpiration();
     return false;
   }
   return true;
@@ -71,7 +76,13 @@ const fetchWithAuth = async (endpoint, options = {}) => {
     const data = await response.json();
     console.log(`API Response (${endpoint}):`, { status: response.status, data });
 
-    // Handle 401 Unauthorized
+    // Handle token expiration
+    if (response.status === 401 && data.error?.includes('expired')) {
+      handleTokenExpiration();
+      return { error: 'Session expired' };
+    }
+
+    // Handle other 401 Unauthorized
     if (response.status === 401) {
       browserAuth.clearAuth();
       window.location.href = '/login';
