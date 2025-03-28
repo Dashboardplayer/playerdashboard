@@ -15,6 +15,7 @@ android {
         
         buildConfigField "String", "API_BASE_URL", "\"https://displaybeheer-server.onrender.com/\""
         buildConfigField "String", "ABLY_API_KEY", "\"vIKTMg.Elxv1w:gzR2zejEq3h3R7tWyRD-ZJ7jjCov3bgq_xvz_FIQr3Y\""
+        buildConfigField "String", "APPETIZE_API", "\"${System.getenv('APPETIZE_API') ?: ''}\""
     }
 
     buildTypes {
@@ -30,12 +31,12 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
     }
 
     kotlinOptions {
-        jvmTarget = '1.8'
+        jvmTarget = '11'
     }
     
     buildFeatures {

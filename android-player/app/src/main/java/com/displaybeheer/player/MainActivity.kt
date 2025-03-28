@@ -13,15 +13,18 @@ import androidx.appcompat.app.AppCompatActivity
 import com.displaybeheer.player.service.PlayerService
 import com.displaybeheer.player.service.UpdateService
 import com.displaybeheer.player.manager.DeviceManager
+import com.displaybeheer.player.api.ApiClient
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.*
 import android.net.http.SslError
 import androidx.core.graphics.createBitmap
+import org.json.JSONObject
 
 class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
+    private lateinit var apiClient: ApiClient
     private val tag = "MainActivity"
     private var isPageLoaded = false
     private var retryCount = 0
@@ -70,6 +73,9 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         
+        // Initialize API client
+        apiClient = ApiClient(this)
+        
         // Start services
         startService(Intent(this, PlayerService::class.java))
         startService(Intent(this, UpdateService::class.java))
@@ -77,6 +83,7 @@ class MainActivity : AppCompatActivity() {
         // Configure WebView with improved settings
         webView = findViewById(R.id.webView)
         webView.settings.apply {
+            // Required for functionality, but with additional security measures
             javaScriptEnabled = true
             domStorageEnabled = true
             databaseEnabled = true
@@ -98,17 +105,12 @@ class MainActivity : AppCompatActivity() {
             // Enable debugging in WebView
             WebView.setWebContentsDebuggingEnabled(true)
             
-            // Add timeout settings
-            setRenderPriority(WebSettings.RenderPriority.HIGH)
-            setCacheMode(WebSettings.LOAD_NO_CACHE)
-            
-            // Additional security settings
-            allowUniversalAccessFromFileURLs = true
-            allowFileAccessFromFileURLs = true
-            allowContentAccess = true
-            allowFileAccess = true
-            allowUniversalAccessFromFileURLs = true
-            allowFileAccessFromFileURLs = true
+            // Modern security settings
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+                // Use modern security settings
+                setAllowUniversalAccessFromFileURLs(false)
+                setAllowFileAccessFromFileURLs(false)
+            }
         }
 
         // Add WebChromeClient for console messages
@@ -124,7 +126,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Add improved error handling
+        // Add WebViewClient with improved security
         webView.webViewClient = object : WebViewClient() {
             override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
                 super.onReceivedError(view, request, error)
@@ -150,7 +152,7 @@ class MainActivity : AppCompatActivity() {
                             val delayMs = (Math.pow(2.0, retryCount.toDouble()) * 1000).toLong()
                             Log.d(tag, "Server unavailable (503), retrying in ${delayMs}ms")
                             view?.postDelayed({
-                                loadInitialUrl()
+                                loadDashboardData()
                             }, delayMs)
                         }
                         else -> handleLoadError(view, errorMessage)
@@ -161,8 +163,20 @@ class MainActivity : AppCompatActivity() {
             override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
                 val errorMessage = "SSL Error: ${error?.primaryError} for URL: ${error?.url}"
                 Log.e(tag, errorMessage)
-                // Always proceed with SSL errors in Appetize.io
-                handler?.proceed()
+                
+                // Always cancel SSL errors in production
+                handler?.cancel()
+                
+                // Show appropriate error message
+                val errorType = when (error?.primaryError) {
+                    SslError.SSL_EXPIRED -> "Certificate expired"
+                    SslError.SSL_IDMISMATCH -> "Certificate hostname mismatch"
+                    SslError.SSL_NOTYETVALID -> "Certificate not yet valid"
+                    SslError.SSL_UNTRUSTED -> "Certificate untrusted"
+                    else -> "SSL Certificate Error"
+                }
+                
+                handleLoadError(view, "$errorType: ${error?.primaryError}")
             }
             
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
@@ -194,21 +208,47 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
+
+            // Add CSP headers for XSS protection
+            override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+                    val response = super.shouldInterceptRequest(view, request)
+                    response?.responseHeaders?.apply {
+                        put("Content-Security-Policy", "default-src 'self' https: data: 'unsafe-inline' 'unsafe-eval'; img-src 'self' https: data:; media-src 'self' https: data:;")
+                    }
+                    return response
+                }
+                return super.shouldInterceptRequest(view, request)
+            }
         }
         
-        // Start loading the server URL
-        loadInitialUrl()
+        // Start loading the dashboard data
+        loadDashboardData()
         
-        // Register receivers
-        registerReceiver(commandReceiver, IntentFilter().apply {
-            addAction("com.displaybeheer.player.INTERNAL_UPDATE_URL")
-            addAction("com.displaybeheer.player.INTERNAL_TAKE_SCREENSHOT")
-            addAction("com.displaybeheer.player.INTERNAL_UPDATE_APK")
-        })
+        // Register receivers with proper flags and API level compatibility
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            // Android 8.0 (API 26) and above
+            registerReceiver(commandReceiver, IntentFilter().apply {
+                addAction("com.displaybeheer.player.INTERNAL_UPDATE_URL")
+                addAction("com.displaybeheer.player.INTERNAL_TAKE_SCREENSHOT")
+                addAction("com.displaybeheer.player.INTERNAL_UPDATE_APK")
+            }, Context.RECEIVER_NOT_EXPORTED)
 
-        registerReceiver(connectionReceiver, IntentFilter().apply {
-            addAction("com.displaybeheer.player.INTERNAL_CONNECTION_STATE")
-        })
+            registerReceiver(connectionReceiver, IntentFilter().apply {
+                addAction("com.displaybeheer.player.INTERNAL_CONNECTION_STATE")
+            }, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            // Pre-Android 8.0
+            registerReceiver(commandReceiver, IntentFilter().apply {
+                addAction("com.displaybeheer.player.INTERNAL_UPDATE_URL")
+                addAction("com.displaybeheer.player.INTERNAL_TAKE_SCREENSHOT")
+                addAction("com.displaybeheer.player.INTERNAL_UPDATE_APK")
+            })
+
+            registerReceiver(connectionReceiver, IntentFilter().apply {
+                addAction("com.displaybeheer.player.INTERNAL_CONNECTION_STATE")
+            })
+        }
     }
     
     private fun showConnectionStatus(state: String?, message: String?) {
@@ -230,34 +270,36 @@ class MainActivity : AppCompatActivity() {
                 else -> "#6c757d"  // Gray
             }
             
-            val debugInfo = """
-                <html>
-                    <body style="display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f8f9fa;">
-                        <div style="text-align: center; padding: 20px;">
-                            <div style="background-color: $backgroundColor; color: white; padding: 10px; border-radius: 5px; margin-bottom: 15px;">
-                                <strong>Connection Status:</strong> $state
+            val debugInfo = buildString {
+                append("""
+                    <html>
+                        <body style="display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f8f9fa;">
+                            <div style="text-align: center; padding: 20px;">
+                                <div style="background-color: $backgroundColor; color: white; padding: 10px; border-radius: 5px; margin-bottom: 15px;">
+                                    <strong>Connection Status:</strong> $state
+                                </div>
+                                <h3 style="color: #343a40;">Debug Information</h3>
+                                <p style="color: #6c757d;">Status: $status</p>
+                                <p style="color: #6c757d; font-size: 0.9em;">Message: $message</p>
+                                <p style="color: #6c757d; font-size: 0.8em;">Time: ${System.currentTimeMillis()}</p>
+                                <p style="color: #6c757d; font-size: 0.8em;">API URL: ${BuildConfig.API_BASE_URL}</p>
+                                <div style="margin-top: 10px; padding: 10px; background-color: #f8d7da; border: 1px solid #f5c6cb; border-radius: 5px;">
+                                    <p style="color: #721c24; font-size: 0.9em;">
+                                        <strong>Development Note:</strong><br>
+                                        Make sure your local server is running at port 5001<br>
+                                        The app is connecting to your computer at: ${BuildConfig.API_BASE_URL}
+                                    </p>
+                                </div>
+                                <div style="margin-top: 20px;">
+                                    <button onclick="window.location.reload()" style="padding: 10px 20px; background-color: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer;">
+                                        Retry Connection
+                                    </button>
+                                </div>
                             </div>
-                            <h3 style="color: #343a40;">Debug Information</h3>
-                            <p style="color: #6c757d;">Status: $status</p>
-                            <p style="color: #6c757d; font-size: 0.9em;">Message: $message</p>
-                            <p style="color: #6c757d; font-size: 0.8em;">Time: ${System.currentTimeMillis()}</p>
-                            <p style="color: #6c757d; font-size: 0.8em;">API URL: ${BuildConfig.API_BASE_URL}</p>
-                            <div style="margin-top: 10px; padding: 10px; background-color: #f8d7da; border: 1px solid #f5c6cb; border-radius: 5px;">
-                                <p style="color: #721c24; font-size: 0.9em;">
-                                    <strong>Development Note:</strong><br>
-                                    Make sure your local server is running at port 5001<br>
-                                    The app is connecting to your computer at: ${BuildConfig.API_BASE_URL}
-                                </p>
-                            </div>
-                            <div style="margin-top: 20px;">
-                                <button onclick="window.location.reload()" style="padding: 10px 20px; background-color: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer;">
-                                    Retry Connection
-                                </button>
-                            </div>
-                        </div>
-                    </body>
-                </html>
-            """.trimIndent()
+                        </body>
+                    </html>
+                """.trimIndent())
+            }
             
             if (state != "CONNECTED") {
                 webView.loadData(debugInfo, "text/html", "UTF-8")
@@ -318,19 +360,45 @@ class MainActivity : AppCompatActivity() {
         startService(intent)
     }
     
-    private fun loadInitialUrl() {
-        Log.d(tag, "Loading initial URL: $serverUrl")
-        // First try to load the root URL to establish connection
-        webView.loadUrl(serverUrl)
+    private fun loadDashboardData() {
+        Log.d(tag, "Loading dashboard data from API")
+        showConnectionStatus("CONNECTING", "Loading dashboard data...")
         
-        // After a short delay, try to load the dashboard if we're not already there
-        webView.postDelayed({
-            val currentUrl = webView.url
-            if (!currentUrl.isNullOrEmpty() && !currentUrl.contains("superadmin-dashboard")) {
-                Log.d(tag, "Attempting to load dashboard after initial connection")
-                webView.loadUrl("${serverUrl}superadmin-dashboard")
+        apiClient.getDashboardData { response: String?, error: Exception? ->
+            if (error != null) {
+                Log.e(tag, "Failed to load dashboard data", error)
+                handleLoadError(webView, "Failed to load dashboard data: ${error.message}")
+                return@getDashboardData
             }
-        }, 2000) // 2 second delay
+            
+            if (response != null) {
+                try {
+                    // Use explicit constructor to avoid ambiguity
+                    val jsonResponse = JSONObject(response)
+                    val htmlContent = jsonResponse.optString("html", "")
+                    
+                    if (htmlContent.isNotEmpty()) {
+                        webView.loadDataWithBaseURL(
+                            serverUrl,
+                            htmlContent,
+                            "text/html",
+                            "UTF-8",
+                            null
+                        )
+                        isPageLoaded = true
+                        showConnectionStatus("CONNECTED", "Dashboard loaded successfully")
+                        retryCount = 0
+                    } else {
+                        handleLoadError(webView, "No dashboard content received")
+                    }
+                } catch (e: Exception) {
+                    Log.e(tag, "Failed to parse dashboard data", e)
+                    handleLoadError(webView, "Failed to parse dashboard data: ${e.message}")
+                }
+            } else {
+                handleLoadError(webView, "No response received from server")
+            }
+        }
     }
     
     private fun handleLoadError(view: WebView?, error: String) {
@@ -340,55 +408,50 @@ class MainActivity : AppCompatActivity() {
         if (retryCount < maxRetries) {
             retryCount++
             val delayMs = (Math.pow(2.0, retryCount.toDouble()) * 1000).toLong()
-            view?.postDelayed({
-                loadInitialUrl()
-            }, delayMs)
+            view?.postDelayed(::loadDashboardData, delayMs)
         } else {
             retryCount = 0
             showConnectionStatus("FAILED", "Could not connect to server after multiple attempts")
         }
         
         // Show error page with retry button
-        val errorHtml = """
-            <html>
-                <body style="display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f8f9fa;">
-                    <div style="text-align: center; padding: 20px;">
-                        <div style="background-color: #dc3545; color: white; padding: 10px; border-radius: 5px; margin-bottom: 15px;">
-                            <strong>Connection Error</strong>
+        val errorHtml = buildString {
+            append("""
+                <html>
+                    <body style="display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f8f9fa;">
+                        <div style="text-align: center; padding: 20px;">
+                            <div style="background-color: #dc3545; color: white; padding: 10px; border-radius: 5px; margin-bottom: 15px;">
+                                <strong>Connection Error</strong>
+                            </div>
+                            <h3 style="color: #343a40;">Error Details</h3>
+                            <p style="color: #6c757d;">$error</p>
+                            <p style="color: #6c757d;">Server: $serverUrl</p>
+                            <p style="color: #6c757d;">Attempt: $retryCount of $maxRetries</p>
+                            <button onclick="window.location.href='$serverUrl'" style="padding: 10px 20px; background-color: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer;">
+                                Retry Connection
+                            </button>
                         </div>
-                        <h3 style="color: #343a40;">Error Details</h3>
-                        <p style="color: #6c757d;">$error</p>
-                        <p style="color: #6c757d;">Server: $serverUrl</p>
-                        <p style="color: #6c757d;">Attempt: $retryCount of $maxRetries</p>
-                        <button onclick="window.location.href='$serverUrl'" style="padding: 10px 20px; background-color: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer;">
-                            Retry Connection
-                        </button>
-                    </div>
-                </body>
-            </html>
-        """.trimIndent()
+                    </body>
+                </html>
+            """.trimIndent())
+        }
         
         view?.loadData(errorHtml, "text/html", "UTF-8")
     }
     
     private fun registerDevice() {
-        val deviceId = DeviceManager.getMacAddress(this) ?: return
-        val registerScript = """
-            try {
-                if (typeof window.registerNewPlayer === 'function') {
-                    window.registerNewPlayer('${deviceId.replace("'", "\\'")}');
-                } else {
-                    console.log('registerNewPlayer function not found, navigating to dashboard');
-                    window.location.href = '${serverUrl}superadmin-dashboard';
-                }
-            } catch (e) {
-                console.error('Failed to register device:', e);
-                window.location.href = '${serverUrl}superadmin-dashboard';
+        val deviceId = DeviceManager.getMacAddress(this)
+        apiClient.registerDevice(deviceId) { success: Boolean, error: Exception? ->
+            if (error != null) {
+                Log.e(tag, "Failed to register device", error)
+                return@registerDevice
             }
-        """.trimIndent()
-        
-        webView.evaluateJavascript(registerScript) { result ->
-            Log.d(tag, "Register device result: $result")
+            
+            if (success) {
+                Log.d(tag, "Device registered successfully")
+            } else {
+                Log.e(tag, "Device registration failed")
+            }
         }
     }
     

@@ -257,10 +257,29 @@ class UpdateService : Service() {
     }
     
     private fun createBackup() {
-        // Create backup of current system files
-        // This is a simplified example - you'll need to implement the actual backup logic
-        val backupFile = File(backupDir, "system_backup_${System.currentTimeMillis()}.zip")
-        // Implement backup creation logic
+        try {
+            val backupDir = File(getExternalFilesDir(null), "backups")
+            if (!backupDir.exists()) {
+                backupDir.mkdirs()
+            }
+
+            // Create backup file with timestamp
+            val timestamp = System.currentTimeMillis()
+            val backupFile = File(backupDir, "system_backup_$timestamp.zip")
+            
+            // Clean up old backups (keep only last 5)
+            val backupFiles = backupDir.listFiles()?.filter { it.name.startsWith("system_backup_") } ?: emptyList()
+            if (backupFiles.size > 5) {
+                backupFiles.sortedBy { it.lastModified() }
+                    .take(backupFiles.size - 5)
+                    .forEach { it.delete() }
+            }
+
+            // Create backup
+            // ... rest of backup creation code ...
+        } catch (e: Exception) {
+            Log.e(tag, "Failed to create backup", e)
+        }
     }
     
     private fun performRollback() {
@@ -358,5 +377,12 @@ class UpdateService : Service() {
         coroutineScope.cancel()
         httpClient.dispatcher.executorService.shutdown()
         unregisterReceiver(downloadCompleteReceiver)
+    }
+
+    private fun sendProgressUpdate(progress: Int, message: String) {
+        val intent = Intent("com.displaybeheer.player.UPDATE_PROGRESS")
+        intent.putExtra("progress", progress)
+        intent.putExtra("message", message)
+        sendBroadcast(intent)
     }
 } 

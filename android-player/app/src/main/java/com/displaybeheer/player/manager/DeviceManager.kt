@@ -1,7 +1,8 @@
 package com.displaybeheer.player.manager
 
 import android.content.Context
-import android.net.wifi.WifiManager
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
@@ -46,8 +47,11 @@ object DeviceManager {
     }
     
     fun isOnline(context: Context): Boolean {
-        val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-        val isOnline = wifiManager.isWifiEnabled && wifiManager.connectionInfo.networkId != -1
+        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val network = connectivityManager.activeNetwork
+        val capabilities = connectivityManager.getNetworkCapabilities(network)
+        
+        val isOnline = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
         Log.d(TAG, "Device online status: $isOnline")
         return isOnline
     }

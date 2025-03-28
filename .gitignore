@@ -25,3 +25,6 @@ yarn-debug.log
 yarn-error.log
 
 src/superbaseClient.js
+
+# Environment variables
+.env.*.local

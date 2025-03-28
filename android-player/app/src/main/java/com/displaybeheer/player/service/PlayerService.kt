@@ -23,15 +23,44 @@ class PlayerService : Service() {
     private lateinit var localBroadcastManager: LocalBroadcastManager
     private var isAblyConnected = false
     private var pendingUrl: String? = null
+    private lateinit var broadcastReceiver: BroadcastReceiver
 
     override fun onCreate() {
         super.onCreate()
-        Log.d(TAG, "PlayerService onCreate")
+        Log.d(TAG, "PlayerService created")
         
         localBroadcastManager = LocalBroadcastManager.getInstance(this)
         
         // Start Ably service with retry mechanism
         startAblyService()
+
+        // Initialize broadcast receiver
+        broadcastReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                when (intent?.action) {
+                    Intent.ACTION_SCREEN_ON -> {
+                        Log.d(TAG, "Screen turned on")
+                        // Handle screen on event
+                    }
+                    Intent.ACTION_SCREEN_OFF -> {
+                        Log.d(TAG, "Screen turned off")
+                        // Handle screen off event
+                    }
+                }
+            }
+        }
+
+        // Register receiver with proper flags
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_SCREEN_OFF)
+        }
+        
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            registerReceiver(broadcastReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(broadcastReceiver, filter)
+        }
     }
 
     private fun startAblyService() {
@@ -119,14 +148,21 @@ class PlayerService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.d(TAG, "PlayerService onStartCommand")
+        Log.d(TAG, "PlayerService started")
         return START_STICKY
     }
 
-    override fun onBind(intent: Intent?): IBinder? = null
+    override fun onBind(intent: Intent?): IBinder? {
+        return null
+    }
 
     override fun onDestroy() {
         super.onDestroy()
-        Log.d(TAG, "PlayerService onDestroy")
+        try {
+            unregisterReceiver(broadcastReceiver)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error unregistering receiver", e)
+        }
+        Log.d(TAG, "PlayerService destroyed")
     }
 } 
