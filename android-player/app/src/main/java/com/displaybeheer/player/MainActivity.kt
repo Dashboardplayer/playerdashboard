@@ -101,6 +101,14 @@ class MainActivity : AppCompatActivity() {
             // Add timeout settings
             setRenderPriority(WebSettings.RenderPriority.HIGH)
             setCacheMode(WebSettings.LOAD_NO_CACHE)
+            
+            // Additional security settings
+            allowUniversalAccessFromFileURLs = true
+            allowFileAccessFromFileURLs = true
+            allowContentAccess = true
+            allowFileAccess = true
+            allowUniversalAccessFromFileURLs = true
+            allowFileAccessFromFileURLs = true
         }
 
         // Add WebChromeClient for console messages
@@ -136,7 +144,17 @@ class MainActivity : AppCompatActivity() {
                 Log.e(tag, errorMessage)
                 
                 if (request?.isForMainFrame == true) {
-                    handleLoadError(view, errorMessage)
+                    when (errorResponse?.statusCode) {
+                        503 -> {
+                            // Server is temporarily unavailable, implement exponential backoff
+                            val delayMs = (Math.pow(2.0, retryCount.toDouble()) * 1000).toLong()
+                            Log.d(tag, "Server unavailable (503), retrying in ${delayMs}ms")
+                            view?.postDelayed({
+                                loadInitialUrl()
+                            }, delayMs)
+                        }
+                        else -> handleLoadError(view, errorMessage)
+                    }
                 }
             }
             
@@ -302,7 +320,17 @@ class MainActivity : AppCompatActivity() {
     
     private fun loadInitialUrl() {
         Log.d(tag, "Loading initial URL: $serverUrl")
+        // First try to load the root URL to establish connection
         webView.loadUrl(serverUrl)
+        
+        // After a short delay, try to load the dashboard if we're not already there
+        webView.postDelayed({
+            val currentUrl = webView.url
+            if (!currentUrl.isNullOrEmpty() && !currentUrl.contains("superadmin-dashboard")) {
+                Log.d(tag, "Attempting to load dashboard after initial connection")
+                webView.loadUrl("${serverUrl}superadmin-dashboard")
+            }
+        }, 2000) // 2 second delay
     }
     
     private fun handleLoadError(view: WebView?, error: String) {
