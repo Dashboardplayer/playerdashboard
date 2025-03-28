@@ -80,10 +80,14 @@ class AblyService : Service() {
                 
                 override fun onError(error: ErrorInfo) {
                     Log.e(TAG, "Failed to register player: ${error.message}")
-                    // Broadcast registration failure
-                    sendBroadcast(Intent("com.displaybeheer.player.CONNECTION_STATE")
-                        .putExtra("state", "FAILED")
-                        .putExtra("message", "Failed to register player: ${error.message}"))
+                    // Broadcast registration failure using explicit intent
+                    val intent = Intent().apply {
+                        setClass(applicationContext, Class.forName("com.displaybeheer.player.receiver.ConnectionReceiver"))
+                        action = "com.displaybeheer.player.CONNECTION_STATE"
+                        putExtra("state", "FAILED")
+                        putExtra("message", "Failed to register player: ${error.message}")
+                    }
+                    sendBroadcast(intent)
                 }
             })
             
@@ -100,10 +104,14 @@ class AblyService : Service() {
             
         } catch (e: Exception) {
             Log.e(TAG, "Failed to register player", e)
-            // Broadcast registration failure
-            sendBroadcast(Intent("com.displaybeheer.player.CONNECTION_STATE")
-                .putExtra("state", "FAILED")
-                .putExtra("message", "Failed to register player: ${e.message}"))
+            // Broadcast registration failure using explicit intent
+            val intent = Intent().apply {
+                setClass(applicationContext, Class.forName("com.displaybeheer.player.receiver.ConnectionReceiver"))
+                action = "com.displaybeheer.player.CONNECTION_STATE"
+                putExtra("state", "FAILED")
+                putExtra("message", "Failed to register player: ${e.message}")
+            }
+            sendBroadcast(intent)
         }
     }
     
@@ -147,19 +155,31 @@ class AblyService : Service() {
             when (command) {
                 "updateUrl" -> {
                     val url = data.getString("url")
-                    sendBroadcast(Intent("com.displaybeheer.player.UPDATE_URL")
-                        .putExtra("url", url))
+                    val intent = Intent().apply {
+                        setClass(applicationContext, Class.forName("com.displaybeheer.player.receiver.CommandReceiver"))
+                        action = "com.displaybeheer.player.UPDATE_URL"
+                        putExtra("url", url)
+                    }
+                    sendBroadcast(intent)
                 }
                 "reboot" -> {
                     DeviceManager.rebootDevice(this)
                 }
                 "screenshot" -> {
-                    sendBroadcast(Intent("com.displaybeheer.player.TAKE_SCREENSHOT"))
+                    val intent = Intent().apply {
+                        setClass(applicationContext, Class.forName("com.displaybeheer.player.receiver.CommandReceiver"))
+                        action = "com.displaybeheer.player.TAKE_SCREENSHOT"
+                    }
+                    sendBroadcast(intent)
                 }
                 "update" -> {
                     val updateUrl = data.getString("updateUrl")
-                    sendBroadcast(Intent("com.displaybeheer.player.UPDATE_APK")
-                        .putExtra("updateUrl", updateUrl))
+                    val intent = Intent().apply {
+                        setClass(applicationContext, Class.forName("com.displaybeheer.player.receiver.CommandReceiver"))
+                        action = "com.displaybeheer.player.UPDATE_APK"
+                        putExtra("updateUrl", updateUrl)
+                    }
+                    sendBroadcast(intent)
                 }
                 else -> {
                     Log.w(TAG, "Unknown command received: $command")

@@ -12,5 +12,5 @@ public final class BuildConfig {
   // Field from default config.
   public static final String ABLY_API_KEY = "vIKTMg.Elxv1w:gzR2zejEq3h3R7tWyRD-ZJ7jjCov3bgq_xvz_FIQr3Y";
   // Field from default config.
-  public static final String API_BASE_URL = "http://10.0.2.2:5001/";
+  public static final String API_BASE_URL = "https://displaybeheer-server.onrender.com/";
 }

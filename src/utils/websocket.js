@@ -49,11 +49,34 @@ class WebSocketManager {
   handleClose(event) {
     console.log('WebSocket closed:', event.code, event.reason);
     this.cleanup();
-    this.emit('disconnected', event);
-    
-    // Attempt reconnection if not a normal closure
-    if (event.code !== 1000) {
+
+    // Check if closure was due to token expiration or authentication failure
+    if (event.code === 4401) {
+      console.log('Token expired or authentication failed');
+      this.handleTokenExpiration();
+      return;
+    }
+
+    // Only attempt reconnect for non-authentication related closures
+    if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.scheduleReconnect();
+    }
+  }
+
+  // Handle token expiration
+  handleTokenExpiration() {
+    // Clear local auth
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('user');
+      localStorage.removeItem('token');
+    }
+    
+    // Emit token expired event
+    this.emit('tokenExpired');
+    
+    // Redirect to login
+    if (typeof window !== 'undefined') {
+      window.location.href = '/login?expired=true';
     }
   }
 
@@ -67,6 +90,13 @@ class WebSocketManager {
   handleMessage(event) {
     try {
       const message = JSON.parse(event.data);
+      
+      // Handle authentication errors
+      if (message.type === 'auth_error' || message.error === 'Token expired') {
+        this.handleTokenExpiration();
+        return;
+      }
+      
       if (message.type === 'pong') {
         this.handlePong();
       } else {
@@ -162,16 +192,20 @@ class WebSocketManager {
   }
 
   off(event, callback) {
-    const callbacks = this.listeners.get(event);
-    if (callbacks) {
-      callbacks.delete(callback);
+    if (this.listeners.has(event)) {
+      this.listeners.get(event).delete(callback);
     }
   }
 
   emit(event, data) {
-    const callbacks = this.listeners.get(event);
-    if (callbacks) {
-      callbacks.forEach(callback => callback(data));
+    if (this.listeners.has(event)) {
+      this.listeners.get(event).forEach(callback => {
+        try {
+          callback(data);
+        } catch (error) {
+          console.error('Error in event listener:', error);
+        }
+      });
     }
   }
 

@@ -12,6 +12,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.displaybeheer.player.service.PlayerService
 import com.displaybeheer.player.service.UpdateService
+import com.displaybeheer.player.manager.DeviceManager
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
@@ -22,18 +23,23 @@ import androidx.core.graphics.createBitmap
 class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
     private val tag = "MainActivity"
+    private var isPageLoaded = false
+    private var retryCount = 0
+    private val maxRetries = 3
+    private var connectionTimeoutHandler: android.os.Handler? = null
+    private val connectionTimeoutRunnable = Runnable {
+        if (!isPageLoaded) {
+            Log.e(tag, "Connection timeout - no response received")
+            handleLoadError(webView, "Connection timeout - server not responding")
+        }
+    }
     
-    private val serverUrls = listOf(
-        BuildConfig.API_BASE_URL,        // Default URL (10.0.2.2:5001)
-        "http://localhost:5001/",        // Local URL
-        "http://172.26.96.1:5001/"      // Network URL
-    )
-    private var currentUrlIndex = 0
-
+    private val serverUrl = "https://displaybeheer-server.onrender.com/"  // Single source of truth
+    
     private val connectionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
-                "com.displaybeheer.player.CONNECTION_STATE" -> {
+                "com.displaybeheer.player.INTERNAL_CONNECTION_STATE" -> {
                     val state = intent.getStringExtra("state")
                     val message = intent.getStringExtra("message")
                     showConnectionStatus(state, message)
@@ -45,14 +51,14 @@ class MainActivity : AppCompatActivity() {
     private val commandReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
-                "com.displaybeheer.player.UPDATE_URL" -> {
+                "com.displaybeheer.player.INTERNAL_UPDATE_URL" -> {
                     val url = intent.getStringExtra("url")
                     url?.let { webView.loadUrl(it) }
                 }
-                "com.displaybeheer.player.TAKE_SCREENSHOT" -> {
+                "com.displaybeheer.player.INTERNAL_TAKE_SCREENSHOT" -> {
                     takeScreenshot()
                 }
-                "com.displaybeheer.player.UPDATE_APK" -> {
+                "com.displaybeheer.player.INTERNAL_UPDATE_APK" -> {
                     val updateUrl = intent.getStringExtra("updateUrl")
                     updateUrl?.let { startApkUpdate(it) }
                 }
@@ -68,221 +74,124 @@ class MainActivity : AppCompatActivity() {
         startService(Intent(this, PlayerService::class.java))
         startService(Intent(this, UpdateService::class.java))
         
-        // Configure WebView
+        // Configure WebView with improved settings
         webView = findViewById(R.id.webView)
         webView.settings.apply {
-            // Enable JavaScript with security measures
-            javaScriptEnabled = true  // Required for modern web apps
-            
-            // Development settings
-            if (BuildConfig.DEBUG) {
-                // Enable remote debugging
-                WebView.setWebContentsDebuggingEnabled(true)
-                // Allow mixed content in development
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
-                    mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                }
-            } else {
-                // Production settings
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
-                    mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-                }
-            }
-            
-            // Enable necessary modern web features
+            javaScriptEnabled = true
             domStorageEnabled = true
             databaseEnabled = true
-            setGeolocationEnabled(false)
-            
-            // Enable modern web features with restrictions
             allowContentAccess = true
             allowFileAccess = true
-            
-            // Enable modern rendering
             useWideViewPort = true
             loadWithOverviewMode = true
-            mediaPlaybackRequiresUserGesture = false  // Allow media autoplay in development
-            
-            // Enable modern web APIs with restrictions
+            mediaPlaybackRequiresUserGesture = false
             setSupportZoom(true)
             builtInZoomControls = true
             displayZoomControls = false
+            cacheMode = WebSettings.LOAD_NO_CACHE
             
-            // Cache settings for better offline support
-            cacheMode = WebSettings.LOAD_NO_CACHE  // Disable cache during development
+            // Additional settings for Appetize.io compatibility
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+                mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+            }
+            
+            // Enable debugging in WebView
+            WebView.setWebContentsDebuggingEnabled(true)
+            
+            // Add timeout settings
+            setRenderPriority(WebSettings.RenderPriority.HIGH)
+            setCacheMode(WebSettings.LOAD_NO_CACHE)
         }
 
-        // Add Chrome client for console messages
+        // Add WebChromeClient for console messages
         webView.webChromeClient = object : WebChromeClient() {
             override fun onConsoleMessage(message: ConsoleMessage): Boolean {
                 Log.d(tag, "Console: ${message.message()} at ${message.sourceId()}:${message.lineNumber()}")
                 return true
             }
+            
+            override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                super.onProgressChanged(view, newProgress)
+                Log.d(tag, "Loading progress: $newProgress%")
+            }
         }
 
-        // Add security headers
-        webView.settings.userAgentString = "${webView.settings.userAgentString}; DisplayBeheerPlayer"
-        
-        // Content Security Policy
-        val csp = "default-src 'self' http://10.0.2.2:5001 https://io.ably.io; " +
-                 "script-src 'self' 'unsafe-inline' http://10.0.2.2:5001; " +
-                 "style-src 'self' 'unsafe-inline'; " +
-                 "img-src 'self' data: http://10.0.2.2:5001; " +
-                 "connect-src 'self' http://10.0.2.2:5001 https://io.ably.io;"
-                 
+        // Add improved error handling
         webView.webViewClient = object : WebViewClient() {
-            private var retryCount = 0
-            private val maxRetries = 3
-            
             override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
+                super.onReceivedError(view, request, error)
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-                    super.onReceivedError(view, request, error)
-                    Log.e(tag, "WebView error: ${error?.description}")
-                    Log.e(tag, "Failed URL: ${request?.url}")
-                    Log.e(tag, "Error code: ${error?.errorCode}")
+                    val errorMessage = "WebView error: ${error?.description} for URL: ${request?.url}"
+                    Log.e(tag, errorMessage)
                     
-                    // Only show error for main frame
                     if (request?.isForMainFrame == true) {
-                        showConnectionStatus("FAILED", "Failed to load URL: ${error?.description}")
-                        
-                        if (retryCount < maxRetries) {
-                            retryCount++
-                            // Try next URL with exponential backoff
-                            val delayMs = (Math.pow(2.0, retryCount.toDouble()) * 1000).toLong()
-                            view?.postDelayed({
-                                tryNextUrl()
-                            }, delayMs)
-                        } else {
-                            Log.e(tag, "Max retries ($maxRetries) reached")
-                            showConnectionStatus("FAILED", "Failed to connect after $maxRetries attempts")
-                            retryCount = 0  // Reset for next attempt
-                            currentUrlIndex = 0  // Reset URL index
-                        }
+                        handleLoadError(view, errorMessage)
                     }
                 }
             }
             
             override fun onReceivedHttpError(view: WebView?, request: WebResourceRequest?, errorResponse: WebResourceResponse?) {
                 super.onReceivedHttpError(view, request, errorResponse)
-                Log.e(tag, "HTTP Error: ${errorResponse?.statusCode} for URL: ${request?.url}")
-                Log.e(tag, "Error response: ${errorResponse?.reasonPhrase}")
+                val errorMessage = "HTTP Error: ${errorResponse?.statusCode} for URL: ${request?.url}"
+                Log.e(tag, errorMessage)
                 
                 if (request?.isForMainFrame == true) {
-                    val errorMessage = "HTTP Error ${errorResponse?.statusCode}: ${errorResponse?.reasonPhrase}"
-                    showConnectionStatus("FAILED", errorMessage)
-                    
-                    if (errorResponse?.statusCode == 502 && retryCount < maxRetries) {
-                        retryCount++
-                        val delayMs = (Math.pow(2.0, retryCount.toDouble()) * 1000).toLong()
-                        view?.postDelayed({
-                            tryNextUrl()
-                        }, delayMs)
-                    }
+                    handleLoadError(view, errorMessage)
                 }
             }
             
             override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
-                Log.e(tag, "SSL Error: ${error?.primaryError} for URL: ${error?.url}")
-                
-                val errorMessage = when (error?.primaryError) {
-                    SslError.SSL_DATE_INVALID -> "The certificate is not yet valid or has expired"
-                    SslError.SSL_INVALID -> "There is a general SSL error"
-                    SslError.SSL_NOTYETVALID -> "The certificate is not yet valid"
-                    SslError.SSL_EXPIRED -> "The certificate has expired"
-                    SslError.SSL_IDMISMATCH -> "Hostname mismatch"
-                    SslError.SSL_UNTRUSTED -> "The certificate authority is not trusted"
-                    else -> "Unknown SSL error occurred"
-                }
-                
-                // Only proceed for development environment
-                if (BuildConfig.DEBUG && error?.url?.startsWith("http://10.0.2.2") == true) {
-                    Log.w(tag, "Proceeding despite SSL error in development: $errorMessage")
-                    handler?.proceed()
-                } else {
-                    Log.e(tag, "SSL Error - canceling connection: $errorMessage")
-                    handler?.cancel()
-                    showConnectionStatus("FAILED", "Security Error: $errorMessage")
-                }
+                val errorMessage = "SSL Error: ${error?.primaryError} for URL: ${error?.url}"
+                Log.e(tag, errorMessage)
+                // Always proceed with SSL errors in Appetize.io
+                handler?.proceed()
             }
             
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
-                // Inject CSP
-                view?.evaluateJavascript(
-                    """
-                    var meta = document.createElement('meta');
-                    meta.httpEquiv = "Content-Security-Policy";
-                    meta.content = "$csp";
-                    document.head.appendChild(meta);
-                    """.trimIndent(),
-                    null
-                )
-                Log.d(tag, "Starting to load page: $url")
+                Log.d(tag, "Loading URL: $url")
                 showConnectionStatus("CONNECTING", "Loading $url...")
+                
+                // Start connection timeout
+                connectionTimeoutHandler?.removeCallbacks(connectionTimeoutRunnable)
+                connectionTimeoutHandler = android.os.Handler(android.os.Looper.getMainLooper())
+                connectionTimeoutHandler?.postDelayed(connectionTimeoutRunnable, 30000) // 30 second timeout
             }
             
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
-                Log.d(tag, "Page loaded: $url")
+                Log.d(tag, "Finished loading: $url")
                 
-                // Reset retry count and URL index on successful load
-                retryCount = 0
-                currentUrlIndex = 0
+                // Cancel connection timeout
+                connectionTimeoutHandler?.removeCallbacks(connectionTimeoutRunnable)
                 
-                // Check if this is our debug page
-                if (url?.startsWith("data:") == true) {
-                    return
+                if (!url.isNullOrEmpty() && !url.startsWith("data:")) {
+                    isPageLoaded = true
+                    showConnectionStatus("CONNECTED", "Connected to $url")
+                    retryCount = 0  // Reset retry count on successful load
+                    
+                    // Only try to register if not on dashboard
+                    if (!url.contains("superadmin-dashboard")) {
+                        registerDevice()
+                    }
                 }
-                
-                // Successfully loaded the actual URL
-                showConnectionStatus("CONNECTED", "Successfully loaded $url")
-            }
-            
-            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                Log.d(tag, "Attempting to load URL: ${request?.url}")
-                return false // Let the WebView handle the URL
             }
         }
         
-        // Start with the first URL
-        tryNextUrl()
+        // Start loading the server URL
+        loadInitialUrl()
         
-        // Set a timeout for the initial page load
-        webView.postDelayed({
-            if (!isPageLoaded) {
-                Log.e(tag, "Page load timeout for current URL")
-                tryNextUrl()  // Try next URL on timeout
-            }
-        }, 10000) // Reduced timeout to 10 seconds for faster fallback
-        
-        // Register broadcast receivers
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(commandReceiver, IntentFilter().apply {
-                addAction("com.displaybeheer.player.UPDATE_URL")
-                addAction("com.displaybeheer.player.TAKE_SCREENSHOT")
-                addAction("com.displaybeheer.player.UPDATE_APK")
-            }, Context.RECEIVER_NOT_EXPORTED)
+        // Register receivers
+        registerReceiver(commandReceiver, IntentFilter().apply {
+            addAction("com.displaybeheer.player.INTERNAL_UPDATE_URL")
+            addAction("com.displaybeheer.player.INTERNAL_TAKE_SCREENSHOT")
+            addAction("com.displaybeheer.player.INTERNAL_UPDATE_APK")
+        })
 
-            registerReceiver(connectionReceiver, IntentFilter().apply {
-                addAction("com.displaybeheer.player.CONNECTION_STATE")
-            }, Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            registerReceiver(commandReceiver, IntentFilter().apply {
-                addAction("com.displaybeheer.player.UPDATE_URL")
-                addAction("com.displaybeheer.player.TAKE_SCREENSHOT")
-                addAction("com.displaybeheer.player.UPDATE_APK")
-            })
-
-            registerReceiver(connectionReceiver, IntentFilter().apply {
-                addAction("com.displaybeheer.player.CONNECTION_STATE")
-            })
-        }
-
-        // Show initial connecting status
-        showConnectionStatus("CONNECTING", "Initializing connection...")
+        registerReceiver(connectionReceiver, IntentFilter().apply {
+            addAction("com.displaybeheer.player.INTERNAL_CONNECTION_STATE")
+        })
     }
-    
-    private var isPageLoaded = false
     
     private fun showConnectionStatus(state: String?, message: String?) {
         isPageLoaded = state == "CONNECTED"
@@ -391,16 +300,67 @@ class MainActivity : AppCompatActivity() {
         startService(intent)
     }
     
-    private fun tryNextUrl() {
-        if (currentUrlIndex < serverUrls.size) {
-            val nextUrl = serverUrls[currentUrlIndex]
-            Log.d(tag, "Trying next server URL: $nextUrl")
-            webView.loadUrl(nextUrl)
-            currentUrlIndex++
+    private fun loadInitialUrl() {
+        Log.d(tag, "Loading initial URL: $serverUrl")
+        webView.loadUrl(serverUrl)
+    }
+    
+    private fun handleLoadError(view: WebView?, error: String) {
+        Log.e(tag, "Load error: $error")
+        showConnectionStatus("FAILED", error)
+        
+        if (retryCount < maxRetries) {
+            retryCount++
+            val delayMs = (Math.pow(2.0, retryCount.toDouble()) * 1000).toLong()
+            view?.postDelayed({
+                loadInitialUrl()
+            }, delayMs)
         } else {
-            Log.e(tag, "All server URLs failed")
-            showConnectionStatus("FAILED", "Could not connect to any server")
-            currentUrlIndex = 0  // Reset for next retry
+            retryCount = 0
+            showConnectionStatus("FAILED", "Could not connect to server after multiple attempts")
+        }
+        
+        // Show error page with retry button
+        val errorHtml = """
+            <html>
+                <body style="display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f8f9fa;">
+                    <div style="text-align: center; padding: 20px;">
+                        <div style="background-color: #dc3545; color: white; padding: 10px; border-radius: 5px; margin-bottom: 15px;">
+                            <strong>Connection Error</strong>
+                        </div>
+                        <h3 style="color: #343a40;">Error Details</h3>
+                        <p style="color: #6c757d;">$error</p>
+                        <p style="color: #6c757d;">Server: $serverUrl</p>
+                        <p style="color: #6c757d;">Attempt: $retryCount of $maxRetries</p>
+                        <button onclick="window.location.href='$serverUrl'" style="padding: 10px 20px; background-color: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer;">
+                            Retry Connection
+                        </button>
+                    </div>
+                </body>
+            </html>
+        """.trimIndent()
+        
+        view?.loadData(errorHtml, "text/html", "UTF-8")
+    }
+    
+    private fun registerDevice() {
+        val deviceId = DeviceManager.getMacAddress(this) ?: return
+        val registerScript = """
+            try {
+                if (typeof window.registerNewPlayer === 'function') {
+                    window.registerNewPlayer('${deviceId.replace("'", "\\'")}');
+                } else {
+                    console.log('registerNewPlayer function not found, navigating to dashboard');
+                    window.location.href = '${serverUrl}superadmin-dashboard';
+                }
+            } catch (e) {
+                console.error('Failed to register device:', e);
+                window.location.href = '${serverUrl}superadmin-dashboard';
+            }
+        """.trimIndent()
+        
+        webView.evaluateJavascript(registerScript) { result ->
+            Log.d(tag, "Register device result: $result")
         }
     }
     

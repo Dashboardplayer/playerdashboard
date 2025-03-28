@@ -39,15 +39,20 @@ const corsMaxAge = parseInt(process.env.CORS_MAX_AGE) || 86400;
 const corsOptions = {
   origin: (origin, callback) => {
     // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
+    if (!origin) {
+      console.log('Allowing request with no origin (likely mobile app)');
+      return callback(null, true);
+    }
     
     // In development, allow all origins
     if (process.env.NODE_ENV === 'development') {
+      console.log('Development mode: allowing all origins');
       return callback(null, true);
     }
     
     // Check if the origin is in the allowed list
     if (allowedOrigins.includes(origin)) {
+      console.log('Allowing request from origin:', origin);
       return callback(null, true);
     }
     
@@ -56,7 +61,7 @@ const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
   exposedHeaders: ['X-RateLimit-Limit', 'X-RateLimit-Remaining', 'X-RateLimit-Reset'],
   maxAge: corsMaxAge
 };
@@ -216,7 +221,7 @@ const wss = new WebSocketServer({
     authenticateWSConnection(info.req, (err) => {
       if (err) {
         console.log('WebSocket authentication failed:', err.message);
-        cb(false, 401, 'Unauthorized');
+        cb(false, 4401, err.message);
       } else {
         cb(true);
       }
@@ -459,7 +464,110 @@ const HEARTBEAT_TIMEOUT = 35000;
 const TOKEN_VERIFICATION_INTERVAL = 60000; // Verify token every minute
 const ACTIVE_CONNECTIONS = new Map(); // Track active connections
 
-// Modify the WebSocket connection handler
+// Handle WebSocket authentication
+const handleAuthentication = async (ws, message) => {
+  try {
+    // Verify the token
+    const decoded = jwt.verify(message.token, process.env.JWT_SECRET, {
+      algorithms: ['HS256'],
+      audience: 'player-dashboard-api',
+      issuer: 'player-dashboard'
+    });
+    
+    // Check if token is blacklisted
+    const isBlacklisted = await isTokenBlacklisted(decoded.jti);
+    if (isBlacklisted) {
+      console.log('Token blacklisted, closing connection');
+      ws.close(4401, 'Token has been revoked');
+      return;
+    }
+
+    // Verify user still exists and has same role
+    const user = await User.findById(decoded.sub);
+    if (!user || user.role !== decoded.role) {
+      console.log('User changed or deleted, closing connection');
+      ws.close(4401, 'User authentication invalid');
+      return;
+    }
+
+    // Update connection info
+    const connInfo = ACTIVE_CONNECTIONS.get(ws);
+    if (connInfo) {
+      connInfo.token = message.token;
+      ACTIVE_CONNECTIONS.set(ws, connInfo);
+    }
+    
+    ws.clientId = message.clientId;
+    console.log('WebSocket authenticated via message for user:', decoded.email);
+
+    // Send authentication success response
+    ws.send(JSON.stringify({
+      type: 'auth_success',
+      timestamp: Date.now()
+    }));
+  } catch (error) {
+    console.log('WebSocket message authentication failed:', error.message);
+    ws.close(4401, 'Authentication failed');
+  }
+};
+
+// Handle status update
+const handleStatusUpdate = async (ws, data) => {
+  try {
+    // Verify client is authenticated
+    if (!ws.clientId) {
+      ws.close(4401, 'Not authenticated');
+      return;
+    }
+
+    // Broadcast status update to relevant clients
+    broadcastToClients(JSON.stringify({
+      type: 'status_update',
+      data: data,
+      timestamp: Date.now()
+    }));
+  } catch (error) {
+    console.error('Error handling status update:', error);
+  }
+};
+
+// Handle command response
+const handleCommandResponse = async (ws, data) => {
+  try {
+    // Verify client is authenticated
+    if (!ws.clientId) {
+      ws.close(4401, 'Not authenticated');
+      return;
+    }
+
+    // Process command response
+    broadcastToClients(JSON.stringify({
+      type: 'command_response',
+      data: data,
+      timestamp: Date.now()
+    }));
+  } catch (error) {
+    console.error('Error handling command response:', error);
+  }
+};
+
+// Validate WebSocket message format
+const validateMessage = (message) => {
+  if (!message || typeof message !== 'object') return false;
+  if (!message.type || typeof message.type !== 'string') return false;
+  
+  switch (message.type) {
+    case 'authenticate':
+      return message.token && message.clientId && message.timestamp;
+    case 'status_update':
+    case 'command_response':
+      return message.data && message.timestamp;
+    default:
+      return false;
+  }
+};
+
+// WebSocket connection handler
 wss.on('connection', function connection(ws, req) {
   console.log('New WebSocket connection established');
   ws.isAlive = true;
@@ -470,7 +578,7 @@ wss.on('connection', function connection(ws, req) {
   ACTIVE_CONNECTIONS.set(ws, {
     userId: req.user.id,
     lastVerified: Date.now(),
-    token: req.token // Store the token from the authentication
+    token: req.token
   });
   
   // Set up heartbeat for this connection
@@ -553,51 +661,19 @@ wss.on('connection', function connection(ws, req) {
       
       switch (parsedMessage.type) {
         case 'authenticate':
-          try {
-            const decoded = jwt.verify(parsedMessage.token, process.env.JWT_SECRET, {
-              algorithms: ['HS256'],
-              audience: 'player-dashboard-api',
-              issuer: 'player-dashboard'
-            });
-            
-            // Verify the authentication matches the connection
-            if (decoded.sub !== ws.user.id) {
-              throw new Error('Token user mismatch');
-            }
-            
-            // Update stored token
-            const connInfo = ACTIVE_CONNECTIONS.get(ws);
-            if (connInfo) {
-              connInfo.token = parsedMessage.token;
-              ACTIVE_CONNECTIONS.set(ws, connInfo);
-            }
-            
-            ws.clientId = parsedMessage.clientId;
-            console.log('WebSocket authenticated via message for user:', decoded.email);
-          } catch (error) {
-            console.log('WebSocket message authentication failed:', error.message);
-            ws.close(4401, 'Authentication failed');
-          }
+          handleAuthentication(ws, parsedMessage);
           break;
         case 'status_update':
-          if (!ws.clientId) {
-            ws.close(4401, 'Not authenticated');
-            return;
-          }
-          handleStatusUpdate(parsedMessage.data);
+          handleStatusUpdate(ws, parsedMessage.data);
           break;
         case 'command_response':
-          if (!ws.clientId) {
-            ws.close(4401, 'Not authenticated');
-            return;
-          }
-          handleCommandResponse(parsedMessage.data);
+          handleCommandResponse(ws, parsedMessage.data);
           break;
         default:
           console.log('Unknown message type:', parsedMessage.type);
       }
     } catch (error) {
-      console.error('Error processing message');
+      console.error('Error processing message:', error);
       ws.close(4400, 'Invalid message');
     }
   });
@@ -658,54 +734,6 @@ const authenticateWSConnection = (req, callback) => {
     console.log('WebSocket authentication error:', error.message);
     callback(new Error('Authentication failed'));
   }
-};
-
-// Message validation with enhanced security
-const validateMessage = (message) => {
-  if (!message || typeof message !== 'object') {
-    return false;
-  }
-
-  if (!message.type || typeof message.type !== 'string') {
-    return false;
-  }
-
-  // Enhanced message validation
-  switch (message.type) {
-    case 'authenticate':
-      return (
-        message.token && 
-        typeof message.token === 'string' &&
-        message.timestamp && 
-        typeof message.timestamp === 'number' &&
-        message.clientId &&
-        typeof message.clientId === 'string' &&
-        // Ensure timestamp is recent (within last 5 minutes)
-        Date.now() - message.timestamp < 5 * 60 * 1000
-      );
-    case 'status_update':
-      return message.data && typeof message.data === 'object';
-    case 'command_response':
-      return (
-        message.data && 
-        typeof message.data === 'object' &&
-        typeof message.data.commandId === 'string'
-      );
-    default:
-      return false;
-  }
-};
-
-// Handle status update messages
-const handleStatusUpdate = (data) => {
-  // Implement status update logic
-  console.log('Status update received:', data);
-};
-
-// Handle command response messages
-const handleCommandResponse = (data) => {
-  // Implement command response logic
-  console.log('Command response received:', data);
 };
 
 // API Routes

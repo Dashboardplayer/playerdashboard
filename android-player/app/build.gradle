@@ -13,7 +13,7 @@ android {
         versionCode 1
         versionName "1.0"
         
-        buildConfigField "String", "API_BASE_URL", "\"http://10.0.2.2:5001/\""
+        buildConfigField "String", "API_BASE_URL", "\"https://displaybeheer-server.onrender.com/\""
         buildConfigField "String", "ABLY_API_KEY", "\"vIKTMg.Elxv1w:gzR2zejEq3h3R7tWyRD-ZJ7jjCov3bgq_xvz_FIQr3Y\""
     }
 

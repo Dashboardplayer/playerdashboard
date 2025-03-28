@@ -482,7 +482,7 @@ function initializeWebSocket() {
     }
 
     // Create WebSocket with secure protocol
-    const protocols = [`jwt.${user.token}`]; // Use sub-protocol for token transmission
+    const protocols = [`jwt.${user.token}`];
     ws = new WebSocket(WS_URL, protocols);
     
     ws.onopen = () => {
@@ -502,22 +502,23 @@ function initializeWebSocket() {
     ws.onclose = (event) => {
       console.log('WebSocket disconnected:', event.code);
       
-      // Handle authentication errors
-      if (event.code === 1008) { // Policy violation (e.g., invalid token)
-        browserAuth.clearAuth();
-        window.location.href = '/login';
+      // Handle authentication errors and token expiration
+      if (event.code === 4401 || event.code === 1008) {
+        console.log('Token expired or authentication failed');
+        handleTokenExpiration();
         return;
       }
 
-      // Attempt reconnection if not max attempts
-      if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+      // Attempt reconnection if not max attempts and we still have a valid session
+      const currentUser = browserAuth.getUser();
+      if (currentUser && currentUser.token && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
         setTimeout(() => {
           reconnectAttempts++;
           console.log(`Attempting to reconnect (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`);
           initializeWebSocket();
-        }, RECONNECT_DELAY);
+        }, RECONNECT_DELAY * Math.pow(2, reconnectAttempts)); // Exponential backoff
       } else {
-        console.log('Max reconnection attempts reached');
+        console.log('Max reconnection attempts reached or no valid session');
       }
     };
 
@@ -528,6 +529,14 @@ function initializeWebSocket() {
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
+        
+        // Handle authentication errors and token expiration
+        if (data.type === 'auth_error' || data.error === 'Token expired') {
+          console.log('WebSocket authentication error:', data.message || data.error);
+          handleTokenExpiration();
+          return;
+        }
+        
         handleWebSocketMessage(data);
       } catch (error) {
         console.error('Error parsing WebSocket message:', error);
@@ -536,6 +545,21 @@ function initializeWebSocket() {
   } catch (error) {
     console.error('Error initializing WebSocket:', error);
   }
+}
+
+// Handle token expiration
+function handleTokenExpiration() {
+  // Clear auth data
+  browserAuth.clearAuth();
+  
+  // Close WebSocket connection
+  if (ws) {
+    ws.close();
+    ws = null;
+  }
+  
+  // Redirect to login with expired flag
+  window.location.href = '/login?expired=true';
 }
 
 // Re-initialize WebSocket when auth token changes
@@ -559,6 +583,12 @@ if (browserAuth.getUser()) {
 // Logout user
 export const logoutUser = async (userId, token, jti) => {
   try {
+    // Close WebSocket connection first
+    if (ws) {
+      ws.close();
+      ws = null;
+    }
+
     // Get token expiration from JWT
     const decoded = jwt.decode(token);
     if (!decoded || !decoded.exp) {
@@ -573,6 +603,9 @@ export const logoutUser = async (userId, token, jti) => {
       { user: userId, revokedAt: null },
       { revokedAt: new Date() }
     );
+
+    // Clear local auth data
+    browserAuth.clearAuth();
 
     return true;
   } catch (error) {

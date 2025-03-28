@@ -23,6 +23,13 @@ class PlayerApplication : Application() {
         lateinit var instance: PlayerApplication
             private set
         private const val TAG = "PlayerApplication"
+        
+        // Broadcast actions
+        private const val ACTION_UPDATE_URL = "com.displaybeheer.player.INTERNAL_UPDATE_URL"
+        private const val ACTION_TAKE_SCREENSHOT = "com.displaybeheer.player.INTERNAL_TAKE_SCREENSHOT"
+        private const val ACTION_UPDATE_APK = "com.displaybeheer.player.INTERNAL_UPDATE_APK"
+        private const val ACTION_SYSTEM_UPDATE = "com.displaybeheer.player.INTERNAL_SYSTEM_UPDATE"
+        private const val ACTION_CONNECTION_STATE = "com.displaybeheer.player.INTERNAL_CONNECTION_STATE"
     }
     
     override fun onCreate() {
@@ -78,82 +85,92 @@ class PlayerApplication : Application() {
             playersChannel.presence.enter(presenceData.toString(), object : CompletionListener {
                 override fun onSuccess() {
                     Log.d(TAG, "Successfully entered presence with deviceId: $deviceId")
+                    // Notify connection success
+                    sendBroadcast(Intent(ACTION_CONNECTION_STATE)
+                        .putExtra("state", "CONNECTED")
+                        .putExtra("message", "Connected to Ably"))
                 }
                 
                 override fun onError(error: ErrorInfo) {
                     Log.e(TAG, "Failed to enter presence: ${error.message}")
                     Log.e(TAG, "Error code: ${error.code}, statusCode: ${error.statusCode}")
+                    // Notify connection error
+                    sendBroadcast(Intent(ACTION_CONNECTION_STATE)
+                        .putExtra("state", "FAILED")
+                        .putExtra("message", "Failed to connect: ${error.message}"))
                 }
             })
             
             // Subscribe to the device-specific channel for commands
-            deviceChannel.subscribe("command", object : Channel.MessageListener {
-                override fun onMessage(message: Message) {
-                    Log.d(TAG, "Received command message: ${message.data}")
-                    try {
-                        val commandData = JSONObject(message.data.toString())
-                        val commandType = commandData.getString("type")
-                        val payload = commandData.optJSONObject("payload") ?: JSONObject()
-                        
-                        Log.d(TAG, "Processing command type: $commandType")
-                        
-                        // Handle command
-                        when (commandType) {
-                            "updateUrl" -> {
-                                val url = payload.getString("url")
-                                Log.d(TAG, "Updating URL to: $url")
-                                sendBroadcast(Intent("com.displaybeheer.player.UPDATE_URL")
-                                    .putExtra("url", url))
-                            }
-                            "reboot" -> {
-                                Log.d(TAG, "Executing reboot command")
-                                DeviceManager.rebootDevice(this@PlayerApplication)
-                            }
-                            "screenshot" -> {
-                                Log.d(TAG, "Taking screenshot")
-                                sendBroadcast(Intent("com.displaybeheer.player.TAKE_SCREENSHOT"))
-                            }
-                            "update" -> {
-                                val updateUrl = payload.getString("url")
-                                Log.d(TAG, "Updating APK from: $updateUrl")
-                                sendBroadcast(Intent("com.displaybeheer.player.UPDATE_APK")
-                                    .putExtra("updateUrl", updateUrl))
-                            }
-                            "systemUpdate" -> {
-                                val updateUrl = payload.getString("url")
-                                Log.d(TAG, "System update from: $updateUrl")
-                                sendBroadcast(Intent("com.displaybeheer.player.SYSTEM_UPDATE")
-                                    .putExtra("updateUrl", updateUrl))
-                            }
+            deviceChannel.subscribe("command") { message ->
+                Log.d(TAG, "Received command message: ${message.data}")
+                try {
+                    val commandData = JSONObject(message.data.toString())
+                    val commandType = commandData.getString("type")
+                    val payload = commandData.optJSONObject("payload") ?: JSONObject()
+                    
+                    Log.d(TAG, "Processing command type: $commandType")
+                    
+                    // Handle command
+                    when (commandType) {
+                        "updateUrl" -> {
+                            val url = payload.getString("url")
+                            Log.d(TAG, "Updating URL to: $url")
+                            sendBroadcast(Intent(ACTION_UPDATE_URL)
+                                .putExtra("url", url))
                         }
-                        
-                        // Send acknowledgment
-                        val ackData = JSONObject().apply {
-                            put("commandId", commandData.optString("id"))
-                            put("status", "success")
-                            put("timestamp", System.currentTimeMillis())
+                        "reboot" -> {
+                            Log.d(TAG, "Executing reboot command")
+                            DeviceManager.rebootDevice(this@PlayerApplication)
                         }
-                        deviceChannel.publish("commandAck", ackData.toString())
-                        Log.d(TAG, "Sent command acknowledgment")
-                        
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error handling command: ${e.message}")
-                        e.printStackTrace()
-                        // Send error acknowledgment
-                        val errorData = JSONObject().apply {
-                            put("commandId", JSONObject(message.data.toString()).optString("id"))
-                            put("status", "error")
-                            put("error", e.message)
-                            put("timestamp", System.currentTimeMillis())
+                        "screenshot" -> {
+                            Log.d(TAG, "Taking screenshot")
+                            sendBroadcast(Intent(ACTION_TAKE_SCREENSHOT))
                         }
-                        deviceChannel.publish("commandAck", errorData.toString())
+                        "update" -> {
+                            val updateUrl = payload.getString("url")
+                            Log.d(TAG, "Updating APK from: $updateUrl")
+                            sendBroadcast(Intent(ACTION_UPDATE_APK)
+                                .putExtra("updateUrl", updateUrl))
+                        }
+                        "systemUpdate" -> {
+                            val updateUrl = payload.getString("url")
+                            Log.d(TAG, "System update from: $updateUrl")
+                            sendBroadcast(Intent(ACTION_SYSTEM_UPDATE)
+                                .putExtra("updateUrl", updateUrl))
+                        }
                     }
+                    
+                    // Send acknowledgment
+                    val ackData = JSONObject().apply {
+                        put("commandId", commandData.optString("id"))
+                        put("status", "success")
+                        put("timestamp", System.currentTimeMillis())
+                    }
+                    deviceChannel.publish("commandAck", ackData.toString())
+                    Log.d(TAG, "Sent command acknowledgment")
+                    
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error handling command: ${e.message}")
+                    e.printStackTrace()
+                    // Send error acknowledgment
+                    val errorData = JSONObject().apply {
+                        put("commandId", JSONObject(message.data.toString()).optString("id"))
+                        put("status", "error")
+                        put("error", e.message)
+                        put("timestamp", System.currentTimeMillis())
+                    }
+                    deviceChannel.publish("commandAck", errorData.toString())
                 }
-            })
+            }
             
         } catch (e: Exception) {
             Log.e(TAG, "Failed to setup channels: ${e.message}")
             e.printStackTrace()
+            // Notify setup error
+            sendBroadcast(Intent(ACTION_CONNECTION_STATE)
+                .putExtra("state", "FAILED")
+                .putExtra("message", "Failed to setup channels: ${e.message}"))
         }
     }
 } 
