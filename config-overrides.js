@@ -6,6 +6,15 @@ module.exports = function override(config) {
     buffer: require.resolve('buffer/'),
     process: require.resolve('process/browser'),
     crypto: require.resolve('crypto-browserify'),
+    path: require.resolve('path-browserify'),
+    stream: require.resolve('stream-browserify'),
+    os: require.resolve('os-browserify/browser'),
+    util: require.resolve('util/'),
+    assert: require.resolve('assert/'),
+    fs: false,
+    net: false,
+    tls: false,
+    child_process: false
   };
 
   // Add plugins
