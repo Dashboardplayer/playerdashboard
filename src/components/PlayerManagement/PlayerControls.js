@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Button, ButtonGroup, Snackbar, Alert, Dialog, DialogTitle, DialogContent, DialogActions, TextField, FormControl, InputLabel, Select, MenuItem, CircularProgress, Box } from '@mui/material';
-import { ablyService } from '../../services/ablyService';
+import { firebaseService } from '../../services/firebaseService';
 
 const PlayerControls = ({ playerId, onCommandSent, onError }) => {
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
@@ -32,7 +32,7 @@ const PlayerControls = ({ playerId, onCommandSent, onError }) => {
             }
         };
 
-        ablyService.onCommandAcknowledgment(handleAcknowledgment);
+        firebaseService.onCommandAcknowledgment(handleAcknowledgment);
 
         return () => {
             // Cleanup subscription if needed
@@ -43,7 +43,10 @@ const PlayerControls = ({ playerId, onCommandSent, onError }) => {
         try {
             switch (command) {
                 case 'reboot':
-                    await ablyService.rebootPlayer(playerId);
+                    await firebaseService.sendCommand(playerId, {
+                        type: 'reboot',
+                        payload: {}
+                    });
                     setSnackbar({
                         open: true,
                         message: 'Reboot command sent successfully',
@@ -51,7 +54,10 @@ const PlayerControls = ({ playerId, onCommandSent, onError }) => {
                     });
                     break;
                 case 'screenshot':
-                    await ablyService.requestScreenshot(playerId);
+                    await firebaseService.sendCommand(playerId, {
+                        type: 'screenshot',
+                        payload: {}
+                    });
                     setSnackbar({
                         open: true,
                         message: 'Screenshot request sent successfully',
@@ -87,7 +93,7 @@ const PlayerControls = ({ playerId, onCommandSent, onError }) => {
 
         try {
             const commandType = updateType === 'app' ? 'update' : 'systemUpdate';
-            const commandId = await ablyService.sendCommand(playerId, {
+            const commandId = await firebaseService.sendCommand(playerId, {
                 type: commandType,
                 payload: { url: updateUrl }
             });

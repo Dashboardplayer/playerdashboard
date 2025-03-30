@@ -43,7 +43,7 @@ import {
 } from '@mui/icons-material';
 import { Link } from 'react-router-dom';
 import PlayerManagement from '../Players/PlayerManagement';
-import { ablyService } from '../../services/ablyService';
+import { firebaseService } from '../../services/firebaseService';
 
 function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard, hideHeader }) {
   const [currentTab, setCurrentTab] = useState(0);
@@ -381,8 +381,8 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
 
   const triggerCommand = async (playerId, commandType) => {
     try {
-      // Send command using Ably
-      await ablyService.sendCommand(playerId, {
+      // Send command using Firebase
+      await firebaseService.sendCommand(playerId, {
         type: commandType.toLowerCase(),
         payload: {}
       });

@@ -3,13 +3,27 @@ services:
     name: player-dashboard
     env: node
     buildCommand: npm install && npm run build
-    startCommand: node server.js
+    startCommand: NODE_ENV=production node server.js
     envVars:
       - key: NODE_ENV
         value: production
-      - key: NODE_VERSION
-        value: 18.x
-      - key: REDIS_URL
-        sync: false # This will be set manually in the Render dashboard
-    healthCheckPath: /health
-    autoDeploy: true 
+      - key: PORT
+        value: 5001
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: MAILJET_API_KEY
+        sync: false
+      - key: MAILJET_SECRET_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      - key: REACT_APP_RECAPTCHA_SITE_KEY
+        sync: false
+      - key: ALLOWED_ORIGINS
+        value: https://player-dashboard.onrender.com
+      - key: SECURITY_HEADERS_ENABLED
+        value: true
+      - key: REDIS_TLS_ENABLED
+        value: true 

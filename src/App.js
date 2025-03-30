@@ -1,5 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { createBrowserRouter, RouterProvider, Navigate, Outlet } from 'react-router-dom';
+import { ThemeProvider, createTheme } from '@mui/material/styles';
+import CssBaseline from '@mui/material/CssBaseline';
+import { AuthProvider } from './contexts/AuthContext';
 
 // Auth Pages
 import LoginPage from './components/Auth/LoginPage.js';
@@ -287,9 +290,14 @@ function AppContent() {
 
 function App() {
   return (
-    <UserProvider>
-      <AppContent />
-    </UserProvider>
+    <ThemeProvider theme={createTheme()}>
+      <CssBaseline />
+      <AuthProvider>
+        <UserProvider>
+          <AppContent />
+        </UserProvider>
+      </AuthProvider>
+    </ThemeProvider>
   );
 }
 

@@ -377,64 +377,39 @@ const storeCachedPlayers = (players) => {
 // Modified API functions with request deduplication
 export const playerAPI = {
   getAll: async (companyId = null) => {
-    const cacheKey = `players_${companyId || 'all'}`;
-    
-    // Check cache validity first
-    if (cache.players.data && Date.now() - cache.players.timestamp < CACHE_DURATION) {
-      console.log('Using cached players data');
-      const cachedData = companyId
-        ? cache.players.data.filter(player => player.company_id === companyId)
-        : cache.players.data;
-      return { data: cachedData, error: null };
-    }
-
-    return deduplicateRequest(cacheKey, async () => {
-      try {
-        const user = browserAuth.getUser();
-        
-        if (!user || !user.token) {
-          console.error('No authentication token or user found');
-          throw new Error('Authentication required');
-        }
-
-        // If user is not superadmin, force filter by their company_id
-        if (user.role !== 'superadmin' && !companyId) {
-          companyId = user.company_id;
-        }
-
-        const url = companyId ? `${API_URL}/players?company_id=${companyId}` : `${API_URL}/players`;
-        const response = await fetch(url, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${user.token}`
-          }
-        });
-
-        if (!response.ok) {
-          throw new Error(`Failed to fetch players: ${response.status}`);
-        }
-
-        const data = await response.json();
-        
-        // Filter data by company_id if user is not superadmin
-        const filteredData = user.role === 'superadmin'
-          ? data
-          : data.filter(player => player.company_id === user.company_id);
-
-        if (!data.error) {
-          cache.players = {
-            data: filteredData,
-            timestamp: Date.now()
-          };
-        }
-        
-        return { data: filteredData, error: null };
-      } catch (error) {
-        console.error('Error fetching players:', error);
-        return { data: null, error: error.message };
+    try {
+      const user = browserAuth.getUser();
+      
+      if (!user || !user.token) {
+        console.error('No authentication token or user found');
+        throw new Error('Authentication required');
       }
-    });
+
+      // If user is not superadmin, force filter by their company_id
+      const finalCompanyId = user.role !== 'superadmin' ? user.company_id : companyId;
+
+      const response = await fetch(`${API_URL}/players`, {
+        headers: {
+          'Authorization': `Bearer ${user.token}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch players: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      
+      // Filter by company if needed
+      const filteredData = finalCompanyId
+        ? data.filter(player => player.company_id === finalCompanyId)
+        : data;
+
+      return { data: filteredData, error: null };
+    } catch (error) {
+      console.error('Error in playerAPI.getAll:', error);
+      return { data: null, error: error.message };
+    }
   },
   
   create: async (playerData) => {

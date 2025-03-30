@@ -57,7 +57,9 @@ import {
   ArrowDownward,
 } from '@mui/icons-material';
 import { playerAPI, companyAPI } from '../../hooks/apiClient';
-import { ablyService } from '../../services/ablyService';
+import { firebaseService } from '../../services/firebaseService';
+import { browserAuth } from '../../contexts/AuthContext';
+import { useUser } from '../../contexts/UserContext';
 
 // PlayerCard component moved outside
 const PlayerCard = ({ 
@@ -70,7 +72,8 @@ const PlayerCard = ({
   onDelete 
 }) => {
   const [tempUrl, setTempUrl] = useState(player.current_url || '');
-  const isEditing = editingUrl[player._id];
+  const { profile } = useUser();
+  const isSuperAdmin = profile?.role === 'superadmin';
 
   return (
     <Card sx={{ height: '100%' }}>
@@ -98,7 +101,7 @@ const PlayerCard = ({
           <Typography variant="body2" color="text.secondary" gutterBottom>
             URL:
           </Typography>
-          {isEditing ? (
+          {editingUrl[player._id] ? (
             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
               <TextField
                 size="small"
@@ -147,13 +150,15 @@ const PlayerCard = ({
           >
             Details
           </Button>
-          <IconButton 
-            size="small" 
-            color="error"
-            onClick={() => onDelete(player)}
-          >
-            <DeleteIcon />
-          </IconButton>
+          {isSuperAdmin && (
+            <IconButton 
+              size="small" 
+              color="error"
+              onClick={() => onDelete(player)}
+            >
+              <DeleteIcon />
+            </IconButton>
+          )}
         </Box>
       </CardContent>
     </Card>
@@ -161,8 +166,9 @@ const PlayerCard = ({
 };
 
 // PlayerDetailsDialog component moved outside
-const PlayerDetailsDialog = ({ open, onClose, player, onCommand }) => {
+const PlayerDetailsDialog = ({ open, onClose, player, onCommand, onUpdate }) => {
     const [currentUrl, setCurrentUrl] = useState(player?.currentUrl || '');
+    const [deviceId, setDeviceId] = useState(player?.device_id || '');
     const [isEditing, setIsEditing] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -172,12 +178,16 @@ const PlayerDetailsDialog = ({ open, onClose, player, onCommand }) => {
     const [showHistory, setShowHistory] = useState(false);
     const [updateUrl, setUpdateUrl] = useState('');
     const [ablyInitialized, setAblyInitialized] = useState(false);
+    const [isEditingDeviceId, setIsEditingDeviceId] = useState(false);
+    const [deviceIdError, setDeviceIdError] = useState('');
+    const { profile } = useUser();
+    const isSuperAdmin = profile?.role === 'superadmin';
 
-  useEffect(() => {
+    useEffect(() => {
         // Initialize Ably service
         const initializeAbly = async () => {
             try {
-                await ablyService.initialize();
+                await firebaseService.initialize();
                 setAblyInitialized(true);
             } catch (err) {
                 console.error('Failed to initialize Ably:', err);
@@ -192,7 +202,7 @@ const PlayerDetailsDialog = ({ open, onClose, player, onCommand }) => {
         return () => {
             // Cleanup if needed
             if (ablyInitialized) {
-                ablyService.cleanup();
+                firebaseService.cleanup();
             }
         };
     }, [open]);
@@ -227,12 +237,46 @@ const PlayerDetailsDialog = ({ open, onClose, player, onCommand }) => {
             }
         };
 
-        ablyService.onCommandAcknowledgment(handleAcknowledgment);
+        firebaseService.onCommandAcknowledgment(handleAcknowledgment);
 
         return () => {
             // Cleanup subscription if needed
         };
     }, [ablyInitialized, commandStatus?.id]);
+
+    const handleDeviceIdUpdate = async () => {
+        if (!deviceId) {
+            setDeviceIdError('Device ID is required');
+            return;
+        }
+
+        if (!/^[a-zA-Z0-9-_]+$/.test(deviceId)) {
+            setDeviceIdError('Device ID can only contain letters, numbers, hyphens, and underscores');
+            return;
+        }
+
+        setLoading(true);
+        setError('');
+        setSuccess('');
+
+        try {
+            const { error } = await playerAPI.update(player._id, { device_id: deviceId });
+            if (error) throw new Error(error);
+            
+            setSuccess('Device ID updated successfully');
+            setIsEditingDeviceId(false);
+            setDeviceIdError('');
+            
+            // Call onUpdate to refresh the parent component
+            if (onUpdate) {
+                onUpdate();
+            }
+        } catch (err) {
+            setError(`Failed to update device ID: ${err.message}`);
+        } finally {
+            setLoading(false);
+        }
+    };
 
     const handleCommand = async (commandType, payload = {}) => {
         if (!ablyInitialized) {
@@ -246,7 +290,7 @@ const PlayerDetailsDialog = ({ open, onClose, player, onCommand }) => {
         setCommandStatus(null);
 
         try {
-            const commandId = await ablyService.sendCommand(player.id, {
+            const commandId = await firebaseService.sendCommand(player.id, {
                 type: commandType,
                 payload
             });
@@ -261,7 +305,12 @@ const PlayerDetailsDialog = ({ open, onClose, player, onCommand }) => {
             if (onCommand) {
                 onCommand(player.id, commandType);
             }
-    } catch (err) {
+
+            // Call onUpdate to refresh the parent component
+            if (onUpdate) {
+                onUpdate();
+            }
+        } catch (err) {
             setError(`Failed to send command: ${err.message}`);
             setLoading(false);
         }
@@ -284,7 +333,7 @@ const PlayerDetailsDialog = ({ open, onClose, player, onCommand }) => {
         setCommandStatus(null);
 
         try {
-            const commandId = await ablyService.sendCommand(player.id, {
+            const commandId = await firebaseService.sendCommand(player.id, {
                 type: 'update',
                 payload: { url: updateUrl }
             });
@@ -305,14 +354,58 @@ const PlayerDetailsDialog = ({ open, onClose, player, onCommand }) => {
         }
     };
 
-  return (
-        <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-            <DialogTitle>Player Details</DialogTitle>
+    return (
+        <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+            <DialogTitle>
+                Player Details
+            </DialogTitle>
             <DialogContent>
                 <Box sx={{ mt: 2 }}>
+                    {/* Device ID Section */}
+                    <Box sx={{ mb: 3 }}>
+                        <Typography variant="subtitle1" gutterBottom>
+                            Device ID
+                        </Typography>
+                        {isSuperAdmin ? (
+                            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                                <TextField
+                                    fullWidth
+                                    value={deviceId}
+                                    onChange={(e) => {
+                                        setDeviceId(e.target.value);
+                                        setDeviceIdError('');
+                                    }}
+                                    error={Boolean(deviceIdError)}
+                                    helperText={deviceIdError || "Unique identifier for this player"}
+                                    size="small"
+                                />
+                                <IconButton 
+                                    color="primary"
+                                    onClick={handleDeviceIdUpdate}
+                                    disabled={loading}
+                                >
+                                    <SaveIcon />
+                                </IconButton>
+                                <IconButton 
+                                    onClick={() => {
+                                        setIsEditingDeviceId(false);
+                                        setDeviceId(player.device_id);
+                                        setDeviceIdError('');
+                                    }}
+                                >
+                                    <CancelIcon />
+                                </IconButton>
+                            </Box>
+                        ) : (
+                            <Typography variant="body1">
+                                {player?.device_id}
+                            </Typography>
+                        )}
+                    </Box>
+
                     <Typography variant="h6" gutterBottom>
                         Device Management
-          </Typography>
+                    </Typography>
                     <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
                         <Button
                             variant="contained"
@@ -338,11 +431,11 @@ const PlayerDetailsDialog = ({ open, onClose, player, onCommand }) => {
                         >
                             Update APK
                         </Button>
-        </Box>
+                    </Box>
 
                     <Typography variant="h6" gutterBottom>
                         URL Management
-              </Typography>
+                    </Typography>
                     <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
                         <TextField
                             fullWidth
@@ -363,14 +456,14 @@ const PlayerDetailsDialog = ({ open, onClose, player, onCommand }) => {
                         >
                             {isEditing ? 'Save' : 'Edit'}
                         </Button>
-            </Box>
+                    </Box>
 
                     <Typography variant="h6" gutterBottom>
                         Update Management
-              </Typography>
+                    </Typography>
                     <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
-                    <TextField
-                      fullWidth
+                        <TextField
+                            fullWidth
                             label="Update URL"
                             value={updateUrl}
                             onChange={(e) => setUpdateUrl(e.target.value)}
@@ -397,19 +490,19 @@ const PlayerDetailsDialog = ({ open, onClose, player, onCommand }) => {
                             >
                                 {showHistory ? 'Hide History' : 'Show History'}
                             </Button>
-                  </Box>
+                        </Box>
                         
                         {showHistory && (
                             <Box sx={{ maxHeight: 300, overflow: 'auto' }}>
                                 {commandHistory.length === 0 ? (
                                     <Typography color="text.secondary" align="center">
                                         No command history available
-                    </Typography>
+                                    </Typography>
                                 ) : (
                                     commandHistory.map((cmd) => (
                                         <Paper
                                             key={cmd.id}
-                        sx={{ 
+                                            sx={{ 
                                                 p: 1.5,
                                                 mb: 1,
                                                 display: 'flex',
@@ -420,7 +513,7 @@ const PlayerDetailsDialog = ({ open, onClose, player, onCommand }) => {
                                             <Box sx={{ flex: 1 }}>
                                                 <Typography variant="body2">
                                                     {cmd.type.charAt(0).toUpperCase() + cmd.type.slice(1)}
-                      </Typography>
+                                                </Typography>
                                                 <Typography variant="caption" color="text.secondary">
                                                     {new Date(cmd.timestamp).toLocaleString()}
                                                 </Typography>
@@ -432,14 +525,14 @@ const PlayerDetailsDialog = ({ open, onClose, player, onCommand }) => {
                                                     cmd.status === 'error' ? 'error' :
                                                     cmd.status === 'pending' ? 'warning' : 'default'
                                                 }
-                        size="small"
+                                                size="small"
                                             />
                                         </Paper>
                                     ))
                                 )}
-                  </Box>
-                )}
-            </Box>
+                            </Box>
+                        )}
+                    </Box>
 
                     {error && (
                         <Alert severity="error" sx={{ mt: 2 }}>
@@ -461,15 +554,15 @@ const PlayerDetailsDialog = ({ open, onClose, player, onCommand }) => {
                                 {commandStatus.status === 'success' && 'Command executed successfully'}
                                 {commandStatus.status === 'error' && `Command failed: ${commandStatus.error}`}
                             </span>
-            </Box>
+                        </Box>
                     )}
                 </Box>
-      </DialogContent>
+            </DialogContent>
             <DialogActions>
                 <Button onClick={onClose}>Close</Button>
-      </DialogActions>
-    </Dialog>
-  );
+            </DialogActions>
+        </Dialog>
+    );
 };
 
 // Add BulkEditDialog component before PlayerManagement function
@@ -485,6 +578,7 @@ const BulkEditDialog = ({
 }) => {
   const [selectedPlayers, setSelectedPlayers] = useState([]);
   const [editedUrls, setEditedUrls] = useState({});
+  const [editedDeviceIds, setEditedDeviceIds] = useState({});
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
@@ -494,12 +588,15 @@ const BulkEditDialog = ({
     lastSeen: 'all'
   });
   const ROWS_PER_PAGE = 10;
+  const { profile } = useUser();
+  const isSuperAdmin = profile?.role === 'superadmin';
 
   useEffect(() => {
     // Reset state when dialog opens
     if (open) {
       setSelectedPlayers([]);
       setEditedUrls({});
+      setEditedDeviceIds({});
       setPage(1);
       setSearchQuery('');
       setFilters({
@@ -600,26 +697,43 @@ const BulkEditDialog = ({
     }));
   };
 
+  const handleDeviceIdChange = (playerId, newDeviceId) => {
+    setEditedDeviceIds(prev => ({
+      ...prev,
+      [playerId]: newDeviceId
+    }));
+  };
+
   const handleSaveAll = async () => {
-    if (Object.keys(editedUrls).length === 0) {
-      setError('No URLs have been modified');
+    if (Object.keys(editedUrls).length === 0 && Object.keys(editedDeviceIds).length === 0) {
+      setError('No changes have been made');
       return;
     }
 
     setLoading(true);
     try {
-      // Only update URLs that have been modified
+      // Update URLs that have been modified
       await Promise.all(
         Object.entries(editedUrls).map(([playerId, url]) =>
           playerAPI.update(playerId, { current_url: url })
         )
       );
+
+      // Update device IDs that have been modified (only for superadmin)
+      if (isSuperAdmin && Object.keys(editedDeviceIds).length > 0) {
+        await Promise.all(
+          Object.entries(editedDeviceIds).map(([playerId, deviceId]) =>
+            playerAPI.update(playerId, { device_id: deviceId })
+          )
+        );
+      }
       
-      setSuccess('All URLs updated successfully');
+      setSuccess('All changes saved successfully');
       setEditedUrls({});
+      setEditedDeviceIds({});
       onClose(); // Close dialog after successful save
     } catch (err) {
-      setError('Failed to update URLs: ' + err.message);
+      setError('Failed to save changes: ' + err.message);
     } finally {
       setLoading(false);
     }
@@ -636,7 +750,7 @@ const BulkEditDialog = ({
       // Send command to all selected players using Ably
       await Promise.all(
         selectedPlayers.map(playerId =>
-          ablyService.sendCommand(playerId, {
+          firebaseService.sendCommand(playerId, {
             type: command.toLowerCase(),
             payload: {}
           })
@@ -835,6 +949,7 @@ const BulkEditDialog = ({
               {currentPlayers.map((player) => {
                 const company = companies.find(c => c.company_id === player.company_id);
                 const hasUrlChanged = editedUrls[player._id] !== undefined;
+                const hasDeviceIdChanged = editedDeviceIds[player._id] !== undefined;
                 return (
                   <TableRow key={player._id}>
                     <TableCell padding="checkbox">
@@ -843,7 +958,23 @@ const BulkEditDialog = ({
                         onChange={() => handleSelectPlayer(player._id)}
                       />
                     </TableCell>
-                    <TableCell>{player.device_id}</TableCell>
+                    <TableCell>
+                      {isSuperAdmin ? (
+                        <TextField
+                          size="small"
+                          fullWidth
+                          value={editedDeviceIds[player._id] !== undefined ? editedDeviceIds[player._id] : player.device_id || ''}
+                          onChange={(e) => handleDeviceIdChange(player._id, e.target.value)}
+                          placeholder="Enter Device ID"
+                          disabled={loading}
+                          sx={{
+                            backgroundColor: hasDeviceIdChanged ? 'action.hover' : 'transparent',
+                          }}
+                        />
+                      ) : (
+                        <Typography variant="body2">{player.device_id || 'No Device ID'}</Typography>
+                      )}
+                    </TableCell>
                     <TableCell>{company?.company_name || 'No Company'}</TableCell>
                     <TableCell>
                       <Chip
@@ -898,7 +1029,7 @@ const BulkEditDialog = ({
             variant="contained" 
             color="primary"
             onClick={handleSaveAll}
-            disabled={loading || Object.keys(editedUrls).length === 0}
+            disabled={loading || (Object.keys(editedUrls).length === 0 && Object.keys(editedDeviceIds).length === 0)}
           >
             Save All Changes
           </Button>
@@ -947,8 +1078,13 @@ function PlayerManagement() {
   // State for bulk edit dialog
   const [bulkEditDialogOpen, setBulkEditDialogOpen] = useState(false);
 
-  // Fetch players and companies
-  const fetchData = async () => {
+  // Add useEffect for initial data fetch
+  useEffect(() => {
+    refreshData();
+  }, []); // Empty dependency array means this runs once on mount
+
+  // Add a refresh function that can be passed to child components
+  const refreshData = async () => {
     setLoading(true);
     try {
       const [playersRes, companiesRes] = await Promise.all([
@@ -974,18 +1110,6 @@ function PlayerManagement() {
       setLoading(false);
     }
   };
-
-  // Add effect to refresh data periodically
-  useEffect(() => {
-    // Initial fetch
-    fetchData();
-
-    // Set up periodic refresh every 30 seconds
-    const refreshInterval = setInterval(fetchData, 30000);
-
-    // Cleanup on unmount
-    return () => clearInterval(refreshInterval);
-  }, []); // Empty dependency array means this runs once on mount
 
   // Filter and sort players
   const filteredAndSortedPlayers = useMemo(() => {
@@ -1107,15 +1231,14 @@ function PlayerManagement() {
     }));
   };
 
+  // Update handleUrlUpdate to refresh data after successful update
   const handleUrlUpdate = async (playerId, newUrl) => {
     try {
       const { error } = await playerAPI.update(playerId, { current_url: newUrl });
       if (error) throw new Error(error);
       
-      // Update local state
-      setPlayers(players.map(p => 
-        p._id === playerId ? { ...p, current_url: newUrl } : p
-      ));
+      // Refresh data instead of just updating local state
+      await refreshData();
       setEditingUrl({ ...editingUrl, [playerId]: false });
       setSuccess('URL successfully updated');
     } catch (err) {
@@ -1138,33 +1261,19 @@ function PlayerManagement() {
     setDeleteDialogOpen(true);
   };
 
+  // Update handleDeleteConfirm to refresh data after successful deletion
   const handleDeleteConfirm = async () => {
     if (!playerToDelete) {
       console.error('No player selected for deletion');
       return;
     }
 
-    console.log('Starting player deletion process...');
-    console.log('Player to delete:', {
-      id: playerToDelete._id,
-      device_id: playerToDelete.device_id,
-      company_id: playerToDelete.company_id
-    });
-
-    if (!playerToDelete._id) {
-      setError('Invalid player ID - cannot delete player');
-      console.error('Player object is missing _id:', playerToDelete);
-      return;
-    }
-
     try {
-      // Proceed with deletion
-      console.log('Attempting to delete player from database...');
       const { error } = await playerAPI.delete(playerToDelete._id);
       if (error) throw new Error(error);
       
-      // Fetch fresh data from the server
-      await fetchData();
+      // Refresh data after successful deletion
+      await refreshData();
       
       setSuccess('Player successfully deleted');
       setDeleteDialogOpen(false);
@@ -1187,17 +1296,17 @@ function PlayerManagement() {
     setDetailsDialogOpen(true);
   };
 
+  // Update handleBulkUrlUpdate to refresh data after successful update
   const handleBulkUrlUpdate = async (playerIds, newUrl) => {
     try {
-      // Update URLs for all selected players
       await Promise.all(
         playerIds.map(playerId =>
           playerAPI.update(playerId, { current_url: newUrl })
         )
       );
       
-      // Refresh data
-      await fetchData();
+      // Refresh data after successful bulk update
+      await refreshData();
       setSuccess('URLs updated successfully');
     } catch (err) {
       setError('Failed to update URLs: ' + err.message);
@@ -1205,6 +1314,7 @@ function PlayerManagement() {
     }
   };
 
+  // Update handleBulkCommand to refresh data after successful command
   const handleBulkCommand = async (playerIds, command) => {
     if (playerIds.length === 0) {
       setError('Please select players first');
@@ -1213,16 +1323,17 @@ function PlayerManagement() {
 
     setLoading(true);
     try {
-      // Send command to all selected players using Ably
       await Promise.all(
         playerIds.map(playerId =>
-          ablyService.sendCommand(playerId, {
+          firebaseService.sendCommand(playerId, {
             type: command.toLowerCase(),
             payload: {}
           })
         )
       );
       
+      // Refresh data after successful command
+      await refreshData();
       setSuccess(`${command} command sent to selected players`);
     } catch (err) {
       setError(`Failed to send ${command} command: ${err.message}`);
@@ -1297,7 +1408,7 @@ function PlayerManagement() {
               </Box>
 
               <Tooltip title="Ververs">
-                <IconButton onClick={fetchData} color="primary">
+                <IconButton onClick={refreshData} color="primary">
                   <RefreshIcon />
                 </IconButton>
               </Tooltip>
@@ -1535,6 +1646,7 @@ function PlayerManagement() {
         onClose={() => setDetailsDialogOpen(false)}
         player={selectedPlayer}
         onCommand={handleUrlUpdate}
+        onUpdate={refreshData}
       />
 
       {/* Delete Confirmation Dialog */}

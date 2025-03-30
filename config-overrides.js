@@ -1,27 +1,16 @@
 const webpack = require('webpack');
 
-module.exports = function override(config, env) {
+module.exports = function override(config) {
   // Configure resolve
   config.resolve = {
     ...config.resolve,
     fallback: {
-      crypto: false, // We'll use our local polyfill instead
-      buffer: require.resolve('buffer/'),
+      crypto: require.resolve('crypto-browserify'),
       stream: require.resolve('stream-browserify'),
-      process: require.resolve('process/browser'),
-      http: require.resolve('stream-http'),
-      https: require.resolve('https-browserify'),
-      url: require.resolve('url/'),
-      assert: require.resolve('assert/'),
-      os: require.resolve('os-browserify/browser'),
       path: require.resolve('path-browserify'),
-      util: require.resolve('util/'),
-      zlib: require.resolve('browserify-zlib'),
-      fs: false,
-      net: false,
-      tls: false,
-      child_process: false,
-      vm: false,
+      os: require.resolve('os-browserify/browser'),
+      buffer: require.resolve('buffer/'),
+      process: require.resolve('process/browser'),
     },
   };
 

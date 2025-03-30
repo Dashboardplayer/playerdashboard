@@ -25,8 +25,8 @@ const {
 const rateLimit = require('express-rate-limit');
 const RefreshToken = require('./src/models/RefreshToken');
 const { isTokenBlacklisted, addToBlacklist } = require('./src/services/tokenBlacklistService');
-const Ably = require('ably');
 const { auth, authorize } = require('./src/middleware/auth');
+const path = require('path');
 
 // Load environment variables
 dotenv.config();
@@ -229,15 +229,9 @@ const wss = new WebSocketServer({
   }
 });
 
-// Initialize Ably
-let ablyService;
-
-if (process.env.ABLY_API_KEY) {
-    ablyService = new Ably.Rest(process.env.ABLY_API_KEY);
-    console.log('Ably service initialized successfully');
-} else {
-    console.log('Ably API key not found, real-time communication will be unavailable');
-}
+// Initialize Firebase Admin
+const firebaseAdmin = require('./server/services/firebaseAdmin');
+firebaseAdmin.initialize();
 
 // Initialize Mailjet if credentials are provided
 let mailjet;
@@ -887,19 +881,41 @@ app.put('/api/players/:id', authenticateToken, async (req, res) => {
     const { id } = req.params;
     const updates = req.body;
     
-    const player = await Player.findByIdAndUpdate(
-      id,
-      { ...updates, updatedAt: Date.now() },
-      { new: true }
-    );
+    // Validate MongoDB ObjectId
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ error: 'Invalid player ID format' });
+    }
     
+    // Check if player exists
+    const player = await Player.findById(id);
     if (!player) {
       return res.status(404).json({ error: 'Player not found' });
     }
     
-    broadcastEvent('player_updated', player);
-    return res.json(player);
+    // If user is not superadmin, they can only update players from their own company
+    // and cannot update device_id under any circumstances
+    if (req.user.role !== 'superadmin') {
+      if (req.user.company_id !== player.company_id) {
+        return res.status(403).json({ error: 'You can only update players from your own company' });
+      }
+      
+      // Prevent device_id modification for non-superadmins
+      if ('device_id' in updates) {
+        return res.status(403).json({ error: 'Only superadmins can modify device IDs' });
+      }
+    }
+    
+    // Update the player
+    const updatedPlayer = await Player.findByIdAndUpdate(
+      id,
+      { $set: updates },
+      { new: true }
+    );
+    
+    broadcastEvent('player_updated', updatedPlayer);
+    return res.status(200).json(updatedPlayer);
   } catch (error) {
+    console.error('Error updating player:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -920,9 +936,9 @@ app.delete('/api/players/:id', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Player not found' });
     }
     
-    // If user is not superadmin, they can only delete players from their own company
-    if (req.user.role !== 'superadmin' && req.user.company_id !== player.company_id) {
-      return res.status(403).json({ error: 'You can only delete players from your own company' });
+    // Only superadmin can delete players
+    if (req.user.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Only superadmins can delete players' });
     }
     
     // Delete the player
@@ -2059,6 +2075,22 @@ app.get('/', (req, res) => {
     timestamp: new Date().toISOString()
   });
 });
+
+// Add command routes
+const commandRoutes = require('./server/routes/commands');
+app.use('/api/commands', commandRoutes);
+
+// Serve static files from the React build in production
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static('build'));
+  
+  // Handle React routing, return all requests to React app
+  app.get('*', function(req, res) {
+    if (!req.path.startsWith('/api')) {
+      res.sendFile(path.join(__dirname, 'build', 'index.html'));
+    }
+  });
+}
 
 // Start server
 server.listen(PORT, () => {
