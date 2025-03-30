@@ -40,24 +40,20 @@ const corsOptions = {
   origin: (origin, callback) => {
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) {
-      console.log('Allowing request with no origin (likely mobile app)');
       return callback(null, true);
     }
     
     // In development, allow all origins
     if (process.env.NODE_ENV === 'development') {
-      console.log('Development mode: allowing all origins');
       return callback(null, true);
     }
     
     // Check if the origin is in the allowed list
     if (allowedOrigins.includes(origin)) {
-      console.log('Allowing request from origin:', origin);
       return callback(null, true);
     }
     
-    console.log('CORS blocked for origin:', origin);
-    return callback(new Error('The CORS policy for this site does not allow access from the specified Origin.'));
+    return callback(new Error('CORS not allowed'));
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -2082,13 +2078,15 @@ app.use('/api/commands', commandRoutes);
 
 // Serve static files from the React build in production
 if (process.env.NODE_ENV === 'production') {
-  app.use(express.static('build'));
-  
+  // Serve static files
+  app.use(express.static(path.join(__dirname, 'build')));
+
   // Handle React routing, return all requests to React app
-  app.get('*', function(req, res) {
-    if (!req.path.startsWith('/api')) {
-      res.sendFile(path.join(__dirname, 'build', 'index.html'));
+  app.get('*', function(req, res, next) {
+    if (req.path.startsWith('/api')) {
+      return next();
     }
+    res.sendFile(path.join(__dirname, 'build', 'index.html'));
   });
 }
 
