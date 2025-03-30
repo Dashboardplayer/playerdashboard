@@ -1,19 +1,19 @@
-import { Buffer } from 'buffer';
-import process from 'process';
-import cryptoBrowserify from 'crypto-browserify';
+// Import from our local polyfills
+import { Buffer } from './polyfills/buffer';
+import process from './polyfills/process';
+import crypto from './polyfills/crypto';
 import stream from 'stream-browserify';
 import path from 'path-browserify';
 import os from 'os-browserify/browser';
 
 // Make non-protected globals available
-window.Buffer = Buffer;
-window.process = process;
-window.stream = stream;
-window.path = path;
-window.os = os;
+if (typeof window !== 'undefined') {
+  window.Buffer = window.Buffer || Buffer;
+  window.process = window.process || process;
+}
 
 // For crypto, we'll export it for direct usage rather than trying to set it on window
-const crypto = cryptoBrowserify;
+const cryptoBrowserify = crypto;
 
 // Export all polyfills for direct import where needed
-export { Buffer, process, crypto, stream, path, os }; 
+export { Buffer, process, cryptoBrowserify, stream, path, os }; 
