@@ -155,7 +155,7 @@ const PerformanceTab = () => {
           throw new Error('No authentication token found');
         }
 
-        const response = await fetch('http://localhost:5001/api/monitoring', {
+        const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5001/api'}/monitoring`, {
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'

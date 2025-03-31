@@ -11,7 +11,7 @@ function ConnectionStatus() {
     const checkConnection = async () => {
       try {
         // Try to reach the backend
-        const response = await fetch('http://localhost:5001/api/companies', {
+        const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5001/api'}/companies`, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json'

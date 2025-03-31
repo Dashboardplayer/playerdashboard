@@ -76,7 +76,7 @@ export const sendPasswordResetEmail = async (to, resetToken) => {
     return { success: true };
   }
 
-  const resetLink = `http://localhost:5002/reset-password?token=${resetToken}`;
+  const resetLink = `https://player-dashboard.onrender.com/reset-password?token=${resetToken}`;
   const subject = 'Wachtwoord resetten - Display Beheer';
   const text = `
 Beste gebruiker,
@@ -182,7 +182,7 @@ export const sendRegistrationInvitationEmail = async (to, registrationToken, rol
     return { success: true };
   }
 
-  const registrationLink = `http://localhost:5002/complete-registration?token=${registrationToken}`;
+  const registrationLink = `https://player-dashboard.onrender.com/complete-registration?token=${registrationToken}`;
   const subject = 'Welkom bij Display Beheer - Activeer je account';
   const text = `
 Beste toekomstige gebruiker,

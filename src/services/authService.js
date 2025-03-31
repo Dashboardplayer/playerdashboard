@@ -12,8 +12,8 @@ import { addToBlacklist, blacklistAllUserTokens } from './tokenBlacklistService'
 import { generateUUID } from '../utils/uuidUtils.js';
 
 // WebSocket Configuration
-const WS_URL = process.env.NODE_ENV === 'production' 
-  ? `wss://${window.location.host}`
+const wsBaseUrl = process.env.NODE_ENV === 'production'
+  ? `wss://player-dashboard.onrender.com`
   : `ws://localhost:5001`;
 
 const MAX_RECONNECT_ATTEMPTS = 5;
@@ -390,7 +390,7 @@ export const getUserById = async (userId) => {
       return { error: 'Not authenticated' };
     }
 
-    const response = await fetch(`http://localhost:5001/api/users/${userId}`, {
+    const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5001/api'}/users/${userId}`, {
       headers: {
         'Authorization': `Bearer ${user.token}`
       }
@@ -483,7 +483,7 @@ function initializeWebSocket() {
 
     // Create WebSocket with secure protocol
     const protocols = [`jwt.${user.token}`];
-    ws = new WebSocket(WS_URL, protocols);
+    ws = new WebSocket(wsBaseUrl, protocols);
     
     ws.onopen = () => {
       console.log('WebSocket connected successfully');
