@@ -31,6 +31,50 @@ const path = require('path');
 // Load environment variables
 dotenv.config();
 
+// MongoDB connection with enhanced error handling and logging
+mongoose.connect(process.env.MONGO_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+  serverSelectionTimeoutMS: 10000, // Increased timeout
+  socketTimeoutMS: 45000,
+  keepAlive: true,
+  keepAliveInitialDelay: 300000
+})
+.then(() => {
+  console.log('✅ MongoDB connected successfully');
+})
+.catch((err) => {
+  console.error('❌ MongoDB Connection Error:', err.message);
+  console.error('MongoDB connection is required for the application to work');
+  console.error('Please check your MONGO_URI environment variable and network settings');
+  process.exit(1);
+});
+
+// Add MongoDB connection event handlers
+mongoose.connection.on('error', (err) => {
+  console.error('MongoDB connection error:', err);
+  // Don't exit process here, let it try to reconnect
+});
+
+mongoose.connection.on('disconnected', () => {
+  console.log('MongoDB disconnected - trying to reconnect...');
+});
+
+mongoose.connection.on('reconnected', () => {
+  console.log('MongoDB reconnected successfully');
+});
+
+process.on('SIGINT', async () => {
+  try {
+    await mongoose.connection.close();
+    console.log('MongoDB connection closed through app termination');
+    process.exit(0);
+  } catch (err) {
+    console.error('Error during MongoDB connection closure:', err);
+    process.exit(1);
+  }
+});
+
 // Parse allowed origins from environment variable
 const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'];
 if (process.env.NODE_ENV === 'production') {
@@ -309,47 +353,6 @@ const authenticateToken = async (req, res, next) => {
     return res.status(403).json({ error: 'Token verification failed' });
   }
 };
-
-// MongoDB connection is required
-if (!process.env.MONGO_URI) {
-  console.error('❌ MONGO_URI is required but not provided in environment variables');
-  process.exit(1);
-}
-
-mongoose.connect(process.env.MONGO_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true
-})
-  .then(() => {
-    console.log('✅ MongoDB connected successfully');
-  })
-  .catch(err => {
-    console.error('❌ MongoDB Connection Error:', err.message);
-    console.error('MongoDB connection is required for the application to work');
-    process.exit(1);
-  });
-
-// Define MongoDB models
-const PlayerSchema = new mongoose.Schema({
-  _id: { type: mongoose.Schema.Types.ObjectId, auto: true },
-  device_id: { type: String, required: true, unique: true },
-  company_id: { type: String, required: true },
-  current_url: String,
-  is_online: { type: Boolean, default: false },
-  createdAt: { type: Date, default: Date.now }
-});
-
-const CommandSchema = new mongoose.Schema({
-  player_id: { type: mongoose.Schema.Types.ObjectId, required: true, ref: 'Player' },
-  command_type: { type: String, required: true },
-  payload: { type: mongoose.Schema.Types.Mixed, default: {} },
-  status: { type: String, enum: ['pending', 'processing', 'completed', 'failed'], default: 'pending' },
-  createdAt: { type: Date, default: Date.now },
-  completed_at: { type: Date }
-});
-
-const Player = mongoose.model('Player', PlayerSchema);
-const Command = mongoose.model('Command', CommandSchema);
 
 // Message batching configuration
 const BATCH_INTERVAL = 1000; // 1 second
@@ -2055,9 +2058,30 @@ app.get('/api', (req, res) => {
 const commandRoutes = require('./server/routes/commands');
 app.use('/api/commands', commandRoutes);
 
+// Add auth routes
+const authRoutes = require('./src/routes/auth');
+app.use('/api/auth', authRoutes);
+
+// Add user routes
+const userRoutes = require('./src/routes/users');
+app.use('/api/users', userRoutes);
+
+// Add company routes
+const companyRoutes = require('./src/routes/companies');
+app.use('/api/companies', companyRoutes);
+
+// Add player routes
+const playerRoutes = require('./src/routes/players');
+app.use('/api/players', playerRoutes);
+
 // Add health check endpoint
 app.get('/api/health', (req, res) => {
-  res.status(200).json({ status: 'ok' });
+  const dbStatus = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
+  res.status(200).json({ 
+    status: 'ok',
+    database: dbStatus,
+    timestamp: new Date().toISOString()
+  });
 });
 
 // Serve static files in production

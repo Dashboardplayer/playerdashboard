@@ -2,7 +2,7 @@
 import { browserAuth } from '../utils/browserUtils.js';
 import { generateUUID } from '../utils/uuidUtils.js';
 
-const API_URL = 'http://localhost:5001/api';
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
 
 // Token expiration and cache management
 const isTokenExpired = (token) => {
@@ -109,8 +109,8 @@ const storeCachedCompanies = (companies) => {
 
 // WebSocket connection
 const WS_URL = process.env.NODE_ENV === 'production' 
-  ? `wss://${window.location.host}`
-  : `ws://localhost:5001`;
+  ? `wss://${window.location.host}/api`
+  : 'ws://localhost:5001/api';
 
 let ws = null;
 let reconnectAttempts = 0;
