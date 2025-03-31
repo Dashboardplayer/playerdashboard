@@ -34,6 +34,27 @@ const playerRoutes = require('./src/routes/player');
 // Load environment variables
 dotenv.config();
 
+// Validate required environment variables
+const requiredEnvVars = ['JWT_SECRET', 'MONGO_URI'];
+const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
+if (missingEnvVars.length > 0) {
+  console.error('Error: Missing required environment variables:', missingEnvVars.join(', '));
+  process.exit(1);
+}
+
+// Connect to MongoDB
+mongoose.connect(process.env.MONGO_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+})
+.then(() => {
+  console.log('✅ MongoDB Connected successfully');
+})
+.catch((err) => {
+  console.error('❌ MongoDB Connection Error:', err);
+  process.exit(1);
+});
+
 // Apply routes
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -111,14 +132,6 @@ const loginLimiter = rateLimit({
     return req.ip; // Simplify rate limiting to just IP during development
   }
 });
-
-// Validate required environment variables
-const requiredEnvVars = ['JWT_SECRET', 'MONGO_URI'];
-const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
-if (missingEnvVars.length > 0) {
-  console.error('Error: Missing required environment variables:', missingEnvVars.join(', '));
-  process.exit(1);
-}
 
 // Apply CORS
 app.use(cors(corsOptions));
