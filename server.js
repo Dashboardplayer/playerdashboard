@@ -2043,7 +2043,7 @@ app.use((req, res, next) => {
 });
 
 // Root route handler
-app.get('/', (req, res) => {
+app.get('/api', (req, res) => {
   res.json({ 
     status: 'ok',
     message: 'Displaybeheer API is running',
@@ -2056,14 +2056,20 @@ const commandRoutes = require('./server/routes/commands');
 app.use('/api/commands', commandRoutes);
 
 // Add health check endpoint
-app.get('/health', (req, res) => {
+app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'ok' });
 });
 
 // Serve static files in production
 if (process.env.NODE_ENV === 'production') {
+  // Serve static files from the React build directory
   app.use(express.static(path.join(__dirname, 'build')));
-  app.get('*', (req, res) => {
+  
+  // Handle React routing, return all requests to React app
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/')) {
+      return next();
+    }
     res.sendFile(path.join(__dirname, 'build', 'index.html'));
   });
 }
