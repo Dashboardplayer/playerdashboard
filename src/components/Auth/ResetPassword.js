@@ -16,6 +16,8 @@ import { Visibility, VisibilityOff, LockOutlined } from '@mui/icons-material';
 import { validatePassword } from '../../utils/passwordValidation';
 import PasswordRequirements from './PasswordRequirements';
 
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
+
 function ResetPassword() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -75,7 +77,7 @@ function ResetPassword() {
     try {
       console.log('Attempting to reset password with token:', token);
       
-      const response = await fetch('http://localhost:5001/api/auth/reset-password', {
+      const response = await fetch(`${API_URL}/auth/reset-password`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

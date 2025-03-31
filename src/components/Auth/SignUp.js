@@ -20,6 +20,8 @@ import { authAPI } from '../../hooks/apiClient.js';
 import { validatePassword } from '../../utils/passwordValidation';
 import PasswordRequirements, { getPasswordErrors } from './PasswordRequirements';
 
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
+
 function SignUp() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -50,7 +52,7 @@ function SignUp() {
   const fetchUserInfo = async (token) => {
     try {
       setLoading(true);
-      const url = `http://localhost:5001/api/auth/verify-token?token=${token}`;
+      const url = `${API_URL}/auth/verify-token?token=${token}`;
       console.log('🔍 Making request to:', url);
       
       const response = await fetch(url);

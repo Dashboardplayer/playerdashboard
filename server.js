@@ -179,7 +179,7 @@ if (process.env.NODE_ENV === 'production') {
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         fontSrc: ["'self'", "https://fonts.gstatic.com"],
         imgSrc: ["'self'", "data:", "https:"],
-        connectSrc: ["'self'", "wss:", "ws:", "https:"],
+        connectSrc: ["'self'", "wss:", "ws:", "https:", "https://player-dashboard.onrender.com"],
         frameSrc: ["'self'", "https://www.google.com"],
         objectSrc: ["'none'"],
         mediaSrc: ["'self'"],

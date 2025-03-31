@@ -4,6 +4,8 @@ import { Container, Box, Typography, TextField, Button, Alert, Paper, Link, useT
 import { useNavigate } from 'react-router-dom';
 import { LockOutlined } from '@mui/icons-material';
 
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
+
 function ForgotPassword() {
   const [email, setEmail] = useState('');
   const [error, setError] = useState('');
@@ -26,7 +28,7 @@ function ForgotPassword() {
     try {
       console.log('Requesting password reset for:', email);
       
-      const response = await fetch('http://localhost:5001/api/auth/forgot-password', {
+      const response = await fetch(`${API_URL}/auth/forgot-password`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
