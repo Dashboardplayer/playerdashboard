@@ -49,6 +49,7 @@ import {
   Clear,
   ArrowUpward,
   ArrowDownward,
+  Close as CloseIcon,
 } from '@mui/icons-material';
 import { playerAPI, companyAPI } from '../../hooks/apiClient';
 import { firebaseService } from '../../services/firebaseService';
@@ -173,6 +174,8 @@ const PlayerDetailsDialog = ({ open, onClose, player, onCommand, onUpdate }) => 
     const [ablyInitialized, setAblyInitialized] = useState(false);
     const [isEditingDeviceId, setIsEditingDeviceId] = useState(false);
     const [deviceIdError, setDeviceIdError] = useState('');
+    const [screenshot, setScreenshot] = useState(null);
+    const [showScreenshot, setShowScreenshot] = useState(false);
     const { profile } = useUser();
     const isSuperAdmin = profile?.role === 'superadmin';
 
@@ -193,7 +196,6 @@ const PlayerDetailsDialog = ({ open, onClose, player, onCommand, onUpdate }) => 
         }
 
         return () => {
-            // Cleanup if needed
             if (ablyInitialized) {
                 firebaseService.cleanup();
             }
@@ -210,7 +212,8 @@ const PlayerDetailsDialog = ({ open, onClose, player, onCommand, onUpdate }) => 
                     ...prev,
                     status: acknowledgment.status,
                     error: acknowledgment.error,
-                    timestamp: acknowledgment.timestamp
+                    timestamp: acknowledgment.timestamp,
+                    data: acknowledgment.data
                 }));
 
                 // Add to command history
@@ -219,11 +222,27 @@ const PlayerDetailsDialog = ({ open, onClose, player, onCommand, onUpdate }) => 
                     type: commandStatus.type,
                     status: acknowledgment.status,
                     error: acknowledgment.error,
-                    timestamp: acknowledgment.timestamp
+                    timestamp: acknowledgment.timestamp,
+                    data: acknowledgment.data
                 }, ...prev]);
 
+                // Handle command-specific responses
                 if (acknowledgment.status === 'success') {
-                    setSuccess('Command executed successfully');
+                    switch (commandStatus.type) {
+                        case 'screenshot':
+                            if (acknowledgment.data?.screenshot) {
+                                setScreenshot(acknowledgment.data.screenshot);
+                                setShowScreenshot(true);
+                            }
+                            setSuccess('Screenshot captured successfully');
+                            break;
+                        case 'update':
+                        case 'systemUpdate':
+                            setSuccess(acknowledgment.data?.message || 'Update started successfully');
+                            break;
+                        default:
+                            setSuccess('Command executed successfully');
+                    }
                 } else if (acknowledgment.status === 'error') {
                     setError(`Command failed: ${acknowledgment.error}`);
                 }
@@ -550,10 +569,89 @@ const PlayerDetailsDialog = ({ open, onClose, player, onCommand, onUpdate }) => 
                         </Box>
                     )}
                 </Box>
+
+                {/* Screenshot Dialog */}
+                <Dialog
+                    open={showScreenshot}
+                    onClose={() => setShowScreenshot(false)}
+                    maxWidth="md"
+                    fullWidth
+                >
+                    <DialogTitle>
+                        Screenshot
+                        <IconButton
+                            onClick={() => setShowScreenshot(false)}
+                            sx={{ position: 'absolute', right: 8, top: 8 }}
+                        >
+                            <CloseIcon />
+                        </IconButton>
+                    </DialogTitle>
+                    <DialogContent>
+                        {screenshot && (
+                            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                                <img
+                                    src={`data:image/jpeg;base64,${screenshot}`}
+                                    alt="Device Screenshot"
+                                    style={{ maxWidth: '100%', height: 'auto' }}
+                                />
+                                <Button
+                                    variant="contained"
+                                    color="primary"
+                                    onClick={() => {
+                                        const link = document.createElement('a');
+                                        link.href = `data:image/jpeg;base64,${screenshot}`;
+                                        link.download = `screenshot-${player.device_id}-${new Date().toISOString()}.jpg`;
+                                        document.body.appendChild(link);
+                                        link.click();
+                                        document.body.removeChild(link);
+                                    }}
+                                >
+                                    Download Screenshot
+                                </Button>
+                            </Box>
+                        )}
+                    </DialogContent>
+                </Dialog>
+
+                {/* Command History */}
+                <Box sx={{ mt: 3 }}>
+                    <Typography variant="h6" gutterBottom>
+                        Command History
+                    </Typography>
+                    <TableContainer>
+                        <Table size="small">
+                            <TableHead>
+                                <TableRow>
+                                    <TableCell>Type</TableCell>
+                                    <TableCell>Status</TableCell>
+                                    <TableCell>Time</TableCell>
+                                    <TableCell>Details</TableCell>
+                                </TableRow>
+                            </TableHead>
+                            <TableBody>
+                                {commandHistory.map((cmd) => (
+                                    <TableRow key={cmd.id}>
+                                        <TableCell>{cmd.type}</TableCell>
+                                        <TableCell>
+                                            <Chip
+                                                label={cmd.status}
+                                                color={cmd.status === 'success' ? 'success' : 'error'}
+                                                size="small"
+                                            />
+                                        </TableCell>
+                                        <TableCell>
+                                            {new Date(cmd.timestamp).toLocaleString()}
+                                        </TableCell>
+                                        <TableCell>
+                                            {cmd.error || cmd.data?.message || '-'}
+                                        </TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    </TableContainer>
+                </Box>
             </DialogContent>
-            <DialogActions>
-                <Button onClick={onClose}>Close</Button>
-            </DialogActions>
         </Dialog>
     );
 };
