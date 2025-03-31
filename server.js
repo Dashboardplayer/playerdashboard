@@ -33,6 +33,9 @@ dotenv.config();
 
 // Parse allowed origins from environment variable
 const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'];
+if (process.env.NODE_ENV === 'production') {
+  allowedOrigins.push('https://player-dashboard.onrender.com');
+}
 const corsMaxAge = parseInt(process.env.CORS_MAX_AGE) || 86400;
 
 // CORS configuration
@@ -121,52 +124,28 @@ app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
 // Security Headers Configuration
-if (process.env.SECURITY_HEADERS_ENABLED === 'true') {
-  // Content Security Policy
-  app.use(helmet.contentSecurityPolicy({
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://www.google.com", "https://www.gstatic.com"],
-      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
-      fontSrc: ["'self'", "https://fonts.gstatic.com"],
-      imgSrc: ["'self'", "data:", "https:"],
-      connectSrc: ["'self'", "wss:", "ws:", "https:"],
-      frameSrc: ["'self'", "https://www.google.com"],
-      objectSrc: ["'none'"],
-      mediaSrc: ["'self'"],
-      formAction: ["'self'"],
-      upgradeInsecureRequests: []
-    }
+if (process.env.NODE_ENV === 'production') {
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://www.google.com", "https://www.gstatic.com"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+        fontSrc: ["'self'", "https://fonts.gstatic.com"],
+        imgSrc: ["'self'", "data:", "https:"],
+        connectSrc: ["'self'", "wss:", "ws:", "https:"],
+        frameSrc: ["'self'", "https://www.google.com"],
+        objectSrc: ["'none'"],
+        mediaSrc: ["'self'"],
+        formAction: ["'self'"],
+        upgradeInsecureRequests: []
+      }
+    },
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: { policy: "cross-origin" }
   }));
-
-  // X-Frame-Options
-  app.use(helmet.frameguard({
-    action: process.env.X_FRAME_OPTIONS || 'DENY'
-  }));
-
-  // X-Content-Type-Options
-  app.use(helmet.noSniff());
-
-  // X-XSS-Protection
-  app.use(helmet.xssFilter());
-
-  // HSTS
-  app.use(helmet.hsts({
-    maxAge: 31536000,
-    includeSubDomains: true,
-    preload: true
-  }));
-
-  // Other security headers
-  app.use(helmet.hidePoweredBy());
-  app.use(helmet.crossOriginEmbedderPolicy({ policy: "credentialless" }));
-  app.use(helmet.crossOriginOpenerPolicy({ policy: "same-origin" }));
-  app.use(helmet.crossOriginResourcePolicy({ policy: "same-origin" }));
-  app.use(helmet.dnsPrefetchControl());
-  app.use(helmet.ieNoOpen());
-  app.use(helmet.originAgentCluster());
-  app.use(helmet.permittedCrossDomainPolicies({ permittedPolicies: "none" }));
-  app.use(helmet.referrerPolicy({ policy: "strict-origin-when-cross-origin" }));
+} else {
+  app.use(helmet());
 }
 
 // Configure body parser with explicit limits and types
@@ -2092,4 +2071,7 @@ if (process.env.NODE_ENV === 'production') {
 // Start server
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  if (process.env.NODE_ENV === 'production') {
+    console.log('Running in production mode');
+  }
 });
