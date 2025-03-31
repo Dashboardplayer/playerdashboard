@@ -2059,19 +2059,19 @@ const commandRoutes = require('./server/routes/commands');
 app.use('/api/commands', commandRoutes);
 
 // Add auth routes
-const authRoutes = require('./src/routes/auth');
+const authRoutes = require('./server/routes/auth');
 app.use('/api/auth', authRoutes);
 
 // Add user routes
-const userRoutes = require('./src/routes/users');
+const userRoutes = require('./server/routes/users');
 app.use('/api/users', userRoutes);
 
 // Add company routes
-const companyRoutes = require('./src/routes/companies');
+const companyRoutes = require('./server/routes/companies');
 app.use('/api/companies', companyRoutes);
 
 // Add player routes
-const playerRoutes = require('./src/routes/players');
+const playerRoutes = require('./server/routes/players');
 app.use('/api/players', playerRoutes);
 
 // Add health check endpoint
