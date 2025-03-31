@@ -49,15 +49,6 @@ const clearAllCache = () => {
   localStorage.removeItem('mock_user');
 };
 
-const checkAndClearCacheIfNeeded = () => {
-  const token = browserAuth.getToken();
-  if (!token || isTokenExpired(token)) {
-    handleTokenExpiration();
-    return false;
-  }
-  return true;
-};
-
 // Fetch with authentication and error handling
 const fetchWithAuth = async (endpoint, options = {}) => {
   try {

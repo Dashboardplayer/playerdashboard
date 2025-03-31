@@ -6,23 +6,22 @@ import { LockOutlined } from '@mui/icons-material';
 
 function ForgotPassword() {
   const [email, setEmail] = useState('');
-  const [statusMessage, setStatusMessage] = useState('');
-  const [isError, setIsError] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
-  const theme = useTheme();
 
   const handleResetPassword = async (e) => {
     e.preventDefault();
     if (!email) {
-      setIsError(true);
-      setStatusMessage('Voer een e-mailadres in');
+      setError(true);
+      setError('Voer een e-mailadres in');
       return;
     }
 
-    setStatusMessage('');
-    setIsError(false);
-    setIsLoading(true);
+    setError('');
+    setSuccess(false);
+    setLoading(true);
 
     try {
       console.log('Requesting password reset for:', email);
@@ -48,15 +47,14 @@ function ForgotPassword() {
         console.log('Development mode - Reset token:', data.resetToken);
       }
 
-      setIsError(false);
-      setStatusMessage('Er is een resetlink naar je e-mail verstuurd. Check je inbox!');
+      setSuccess(true);
+      setError('');
       
     } catch (err) {
       console.error('Password reset error:', err);
-      setIsError(true);
-      setStatusMessage(err.message || 'Er ging iets mis bij het verwerken van je verzoek.');
+      setError(err.message || 'Er ging iets mis bij het verwerken van je verzoek.');
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
 
@@ -178,8 +176,8 @@ function ForgotPassword() {
                 size="small"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                error={isError}
-                disabled={isLoading}
+                error={error}
+                disabled={loading}
                 InputProps={{
                   sx: {
                     borderRadius: 1,
@@ -192,7 +190,7 @@ function ForgotPassword() {
                 type="submit"
                 fullWidth
                 variant="contained"
-                disabled={isLoading}
+                disabled={loading}
                 sx={{
                   mt: 3,
                   mb: 2,
@@ -209,7 +207,7 @@ function ForgotPassword() {
                   }
                 }}
               >
-                {isLoading ? (
+                {loading ? (
                   <CircularProgress size={20} />
                 ) : (
                   'Reset wachtwoord'
@@ -234,9 +232,9 @@ function ForgotPassword() {
                 </Link>
               </Box>
 
-              {statusMessage && (
+              {error && (
                 <Alert 
-                  severity={isError ? 'error' : 'success'} 
+                  severity="error" 
                   sx={{ 
                     mb: 3,
                     borderRadius: 1,
@@ -245,7 +243,22 @@ function ForgotPassword() {
                     }
                   }}
                 >
-                  {statusMessage}
+                  {error}
+                </Alert>
+              )}
+
+              {success && (
+                <Alert 
+                  severity="success" 
+                  sx={{ 
+                    mb: 3,
+                    borderRadius: 1,
+                    '& .MuiAlert-message': {
+                      fontSize: { xs: '0.875rem', sm: '1rem' }
+                    }
+                  }}
+                >
+                  Er is een resetlink naar je e-mail verstuurd. Check je inbox!
                 </Alert>
               )}
             </Box>

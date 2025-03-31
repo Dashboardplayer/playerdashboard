@@ -120,14 +120,6 @@ function ResetPassword() {
     }
   };
 
-  const handleTogglePassword = () => {
-    setShowPassword(!showPassword);
-  };
-
-  const handleToggleConfirmPassword = () => {
-    setShowConfirmPassword(!showConfirmPassword);
-  };
-
   return (
     <Box
       sx={{

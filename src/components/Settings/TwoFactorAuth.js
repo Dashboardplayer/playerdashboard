@@ -29,7 +29,6 @@ import { useUser } from '../../contexts/UserContext';
 import { authAPI } from '../../hooks/apiClient';
 
 function TwoFactorAuth() {
-  const { profile } = useUser();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');

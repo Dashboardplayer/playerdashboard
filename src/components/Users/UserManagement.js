@@ -38,7 +38,6 @@ function UserManagement() {
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
 
   // State for filtering and search
   const [searchQuery, setSearchQuery] = useState('');
@@ -442,9 +441,6 @@ function UserManagement() {
       )}
       {error && (
         <Typography color="error">{error}</Typography>
-      )}
-      {success && (
-        <Typography color="success.main" sx={{ mb: 2 }}>{success}</Typography>
       )}
     </Box>
   );

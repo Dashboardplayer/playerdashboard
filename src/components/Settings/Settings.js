@@ -26,7 +26,7 @@ import PasswordRequirements from '../Auth/PasswordRequirements';
 import TwoFactorAuth from './TwoFactorAuth';
 
 function Settings() {
-  const { profile } = useUser();
+  const { profile, updateProfile } = useUser();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
