@@ -29,53 +29,14 @@ const RefreshToken = require('./src/models/RefreshToken');
 const { isTokenBlacklisted, addToBlacklist } = require('./src/services/tokenBlacklistService');
 const { auth, authorize } = require('./src/middleware/auth');
 const path = require('path');
+const playerRoutes = require('./src/routes/player');
 
 // Load environment variables
 dotenv.config();
 
-// MongoDB connection with enhanced error handling and logging
-mongoose.connect(process.env.MONGO_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-  serverSelectionTimeoutMS: 10000, // Increased timeout
-  socketTimeoutMS: 45000,
-  keepAlive: true,
-  keepAliveInitialDelay: 300000
-})
-.then(() => {
-  console.log('✅ MongoDB connected successfully');
-})
-.catch((err) => {
-  console.error('❌ MongoDB Connection Error:', err.message);
-  console.error('MongoDB connection is required for the application to work');
-  console.error('Please check your MONGO_URI environment variable and network settings');
-  process.exit(1);
-});
-
-// Add MongoDB connection event handlers
-mongoose.connection.on('error', (err) => {
-  console.error('MongoDB connection error:', err);
-  // Don't exit process here, let it try to reconnect
-});
-
-mongoose.connection.on('disconnected', () => {
-  console.log('MongoDB disconnected - trying to reconnect...');
-});
-
-mongoose.connection.on('reconnected', () => {
-  console.log('MongoDB reconnected successfully');
-});
-
-process.on('SIGINT', async () => {
-  try {
-    await mongoose.connection.close();
-    console.log('MongoDB connection closed through app termination');
-    process.exit(0);
-  } catch (err) {
-    console.error('Error during MongoDB connection closure:', err);
-    process.exit(1);
-  }
-});
+// Apply routes
+const app = express();
+const PORT = process.env.PORT || 5001;
 
 // Parse allowed origins from environment variable
 const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'];
@@ -158,10 +119,6 @@ if (missingEnvVars.length > 0) {
   console.error('Error: Missing required environment variables:', missingEnvVars.join(', '));
   process.exit(1);
 }
-
-// Create Express app
-const app = express();
-const PORT = process.env.PORT || 5001;
 
 // Apply CORS
 app.use(cors(corsOptions));
@@ -2069,8 +2026,7 @@ const companyRoutes = require('./server/routes/companies');
 app.use('/api/companies', companyRoutes);
 
 // Add player routes
-const playerRoutes = require('./server/routes/players');
-app.use('/api/players', playerRoutes);
+app.use('/api/player', playerRoutes);
 
 // Add health check endpoint
 app.get('/api/health', (req, res) => {
