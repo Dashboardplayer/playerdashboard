@@ -11,6 +11,8 @@ const { WebSocket, WebSocketServer } = require('ws');
 const helmet = require('helmet');
 const User = require('./src/models/User');
 const Company = require('./src/models/Company');
+const Player = require('./src/models/Player');
+const Command = require('./src/models/Command');
 const { sendPasswordResetEmail, sendRegistrationInvitationEmail } = require('./src/services/emailService');
 require('./src/cron/registrationReminders'); // Initialize registration reminders cron job
 require('./src/cron/tokenMaintenance'); // Initialize token maintenance cron job

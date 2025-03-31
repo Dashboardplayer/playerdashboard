@@ -1,4 +1,4 @@
-import mongoose from 'mongoose';
+const mongoose = require('mongoose');
 
 // Player Schema - Replaces players table in Supabase
 const playerSchema = new mongoose.Schema({
@@ -34,4 +34,4 @@ const playerSchema = new mongoose.Schema({
 
 // Create and export Player model
 const Player = mongoose.model('Player', playerSchema);
-export default Player;
+module.exports = Player;
