@@ -109,7 +109,7 @@ const storeCachedCompanies = (companies) => {
 
 // WebSocket connection
 const WS_URL = process.env.NODE_ENV === 'production' 
-  ? `wss://${window.location.host}/api`
+  ? `wss://player-dashboard.onrender.com/api`
   : 'ws://localhost:5001/api';
 
 let ws = null;

@@ -2047,11 +2047,7 @@ app.use((req, res, next) => {
 
 // Root route handler
 app.get('/api', (req, res) => {
-  res.json({ 
-    status: 'ok',
-    message: 'Displaybeheer API is running',
-    timestamp: new Date().toISOString()
-  });
+  res.json({ message: 'API is running' });
 });
 
 // Add command routes
@@ -2076,32 +2072,19 @@ app.use('/api/players', playerRoutes);
 
 // Add health check endpoint
 app.get('/api/health', (req, res) => {
-  const dbStatus = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
-  res.status(200).json({ 
-    status: 'ok',
-    database: dbStatus,
-    timestamp: new Date().toISOString()
-  });
+  res.json({ status: 'healthy' });
 });
 
-// Serve static files in production
-if (process.env.NODE_ENV === 'production') {
-  // Serve static files from the React build directory
-  app.use(express.static(path.join(__dirname, 'build')));
-  
-  // Handle React routing, return all requests to React app
-  app.get('*', (req, res, next) => {
-    if (req.path.startsWith('/api/')) {
-      return next();
-    }
-    res.sendFile(path.join(__dirname, 'build', 'index.html'));
-  });
-}
+// Serve static files from the React build directory
+app.use(express.static(path.join(__dirname, 'build')));
 
-// Start server
+// Handle all other routes by serving the React app
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'build', 'index.html'));
+});
+
+// Start the server
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  if (process.env.NODE_ENV === 'production') {
-    console.log('Running in production mode');
-  }
+  console.log(`Running in ${process.env.NODE_ENV} mode`);
 });
