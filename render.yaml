@@ -26,4 +26,16 @@ services:
       - key: SECURITY_HEADERS_ENABLED
         value: true
       - key: REDIS_TLS_ENABLED
-        value: true 
+        value: true
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_PRIVATE_KEY
+        sync: false
+      - key: FIREBASE_CLIENT_EMAIL
+        sync: false
+      - key: CORS_MAX_AGE
+        value: "86400"
+      - key: X_FRAME_OPTIONS
+        value: "DENY"
+    healthCheckPath: /health
+    autoDeploy: true 

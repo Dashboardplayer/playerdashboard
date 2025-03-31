@@ -1,11 +1,10 @@
-// Import required polyfills
 import { Buffer } from 'buffer';
-import process from 'process';
+import process from 'process/browser.js';
 
-// Make polyfills available globally
-window.global = window;
-window.process = process;
 window.Buffer = Buffer;
+window.process = process;
 
-// Export for direct usage if needed
-export { Buffer, process }; 
+// Ensure process.env is available
+if (!window.process.env) {
+  window.process.env = {};
+} 

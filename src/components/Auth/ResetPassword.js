@@ -26,7 +26,6 @@ function ResetPassword() {
   const [statusMessage, setStatusMessage] = useState('');
   const [isError, setIsError] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [tokenValid, setTokenValid] = useState(true);
   const [passwordErrors, setPasswordErrors] = useState([]);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -35,14 +34,12 @@ function ResetPassword() {
   useEffect(() => {
     const tokenFromUrl = searchParams.get('token');
     if (!tokenFromUrl) {
-      setTokenValid(false);
       setIsError(true);
       setStatusMessage('Geen resettoken gevonden. Probeer opnieuw een wachtwoord reset aan te vragen.');
     } else {
       setToken(tokenFromUrl);
       // Verify token format
       if (!/^[a-f0-9]{40}$/.test(tokenFromUrl)) {
-        setTokenValid(false);
         setIsError(true);
         setStatusMessage('Ongeldig resettoken formaat. Gebruik de link uit je e-mail.');
         return;

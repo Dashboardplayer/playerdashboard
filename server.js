@@ -2076,16 +2076,15 @@ app.get('/', (req, res) => {
 const commandRoutes = require('./server/routes/commands');
 app.use('/api/commands', commandRoutes);
 
-// Serve static files from the React build in production
-if (process.env.NODE_ENV === 'production') {
-  // Serve static files
-  app.use(express.static(path.join(__dirname, 'build')));
+// Add health check endpoint
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok' });
+});
 
-  // Handle React routing, return all requests to React app
-  app.get('*', function(req, res, next) {
-    if (req.path.startsWith('/api')) {
-      return next();
-    }
+// Serve static files in production
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static(path.join(__dirname, 'build')));
+  app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'build', 'index.html'));
   });
 }

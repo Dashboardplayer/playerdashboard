@@ -3,7 +3,6 @@ import { authAPI } from '../../hooks/apiClient';
 import { useNavigate } from 'react-router-dom';
 import { useUser } from '../../contexts/UserContext';
 import ReCAPTCHA from 'react-google-recaptcha';
-import { validatePassword } from '../../utils/passwordValidation';
 import { browserAuth } from '../../utils/browserUtils';
 
 // Material UI imports
@@ -258,9 +257,6 @@ function LoginPage() {
       
       // Reset login attempts on successful login
       resetLoginAttempts();
-      
-      // Store auth data using browserAuth utility
-      browserAuth.setAuth(data.token, data.refreshToken, data.user);
       
       // Save profile to context and navigate
       setProfile(data.user);

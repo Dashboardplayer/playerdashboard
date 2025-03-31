@@ -1,40 +1,20 @@
 // CompaniesDashboard.js
-import React, { useEffect, useState } from 'react';
-import { mongoClient } from '../../hooks/mongoClient.js';
+import React, { useState } from 'react';
+import { useCompanies, usePlayers } from '../../hooks/useApi';
 import { Box, Typography, Card, CardContent, FormControl, InputLabel, Select, MenuItem } from '@mui/material';
 
 function CompaniesDashboard() {
-  const [companies, setCompanies] = useState([]);
   const [selectedCompany, setSelectedCompany] = useState('');
-  const [players, setPlayers] = useState([]);
-
-  useEffect(() => {
-    fetchCompanies();
-  }, []);
-
-  const fetchCompanies = async () => {
-    const { data, error } = await mongoClient.from('companies').select('*').execute();
-    if (error) {
-      console.error('Error fetching companies:', error);
-    } else {
-      setCompanies(data);
-    }
-  };
-
-  const fetchPlayersForCompany = async (companyId) => {
-    const { data, error } = await mongoClient.from('players').select('*').eq('company_id', companyId).execute();
-    if (error) {
-      console.error('Error fetching players for company:', error);
-    } else {
-      setPlayers(data);
-    }
-  };
+  const { data: companies = [] } = useCompanies();
+  const { data: players = [], isLoading: isLoadingPlayers } = usePlayers();
 
   const handleCompanyChange = (event) => {
     const compId = event.target.value;
     setSelectedCompany(compId);
-    fetchPlayersForCompany(compId);
   };
+
+  // Filter players for selected company
+  const companyPlayers = players.filter(player => player.company_id === selectedCompany);
 
   return (
       <Box sx={{ p: 3 }}>
@@ -58,8 +38,10 @@ function CompaniesDashboard() {
         {selectedCompany && (
           <>
             <Typography variant="h6">Players gekoppeld aan dit bedrijf:</Typography>
-            {players.length > 0 ? (
-              players.map((player) => (
+            {isLoadingPlayers ? (
+              <Typography>Loading players...</Typography>
+            ) : companyPlayers.length > 0 ? (
+              companyPlayers.map((player) => (
                 <Card key={player.id} sx={{ mb: 2 }}>
                   <CardContent>
                     <Typography variant="h6">{player.device_id}</Typography>

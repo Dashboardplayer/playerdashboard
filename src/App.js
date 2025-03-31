@@ -14,7 +14,6 @@ import SignUp from './components/Auth/SignUp.js';
 // Dashboards
 import SuperAdminDashboard from './components/Dashboards/SuperAdminDashboard.js';
 import CompanyDashboard from './components/Dashboards/CompanyDashboard.js';
-import CompaniesDashboard from './components/Dashboards/CompaniesDashboard.js';
 import UserManagement from './components/Users/UserManagement.js';
 import PerformanceTab from './components/Admin/PerformanceTab.js';
 
@@ -84,16 +83,6 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
   
   // Otherwise, render the children
   return children;
-};
-
-// Layout component with NavBar
-const Layout = () => {
-  return (
-    <>
-      <NavBar />
-      <Outlet />
-    </>
-  );
 };
 
 // Main App component

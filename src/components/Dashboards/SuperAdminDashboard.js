@@ -15,7 +15,6 @@ import {
   Paper,
   Chip,
   IconButton,
-  Tooltip,
   Alert,
   Snackbar,
   Tab,
@@ -34,12 +33,9 @@ import {
 import {
   Refresh,
   Devices,
-  Business,
-  PersonAdd,
   Person,
   Delete,
-  Search,
-  FilterList
+  Search
 } from '@mui/icons-material';
 import { Link } from 'react-router-dom';
 import PlayerManagement from '../Players/PlayerManagement';
@@ -47,7 +43,6 @@ import { firebaseService } from '../../services/firebaseService';
 
 function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard, hideHeader }) {
   const [currentTab, setCurrentTab] = useState(0);
-  const [players, setPlayers] = useState([]);
   const [users, setUsers] = useState([]);
   const [newUrl, setNewUrl] = useState('');
   const [companies, setCompanies] = useState({});
@@ -106,9 +101,8 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
       });
 
       // Update individual states
-      setPlayers(playersResult.data || []);
-      setCompanies(companiesResult.data || []);
       setUsers(usersResult.data || []);
+      setCompanies(companiesResult.data || []);
 
       // Update company options
       if (companiesResult.data) {
@@ -458,7 +452,7 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
         }
 
         // Remove player from local state
-        setPlayers(prevPlayers => prevPlayers.filter(p => p._id !== itemToDelete._id));
+        setUsers(prevUsers => prevUsers.filter(p => p._id !== itemToDelete._id));
         setSuccess('Player succesvol verwijderd!');
         handleCloseDeleteDialog();
         await fetchDashboardData();

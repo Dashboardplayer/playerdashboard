@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import ConnectionStatus from './ConnectionStatus';
 import {
   AppBar,
   Toolbar,
@@ -20,7 +19,6 @@ import {
   Avatar,
   Menu,
   MenuItem,
-  Badge,
   Chip
 } from '@mui/material';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
@@ -34,16 +32,13 @@ import {
   Business,
   PersonAdd,
   Devices,
-  ArrowBack,
   Logout,
-  Home,
   Settings,
   Group,
   AdminPanelSettings,
   SupervisorAccount,
   Person,
   Add,
-  AccountCircle,
   Timeline
 } from '@mui/icons-material';
 

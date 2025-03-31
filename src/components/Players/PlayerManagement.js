@@ -23,7 +23,6 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  Stack,
   Table,
   TableBody,
   TableCell,
@@ -38,7 +37,6 @@ import {
   Search as SearchIcon,
   FilterList as FilterIcon,
   ExpandMore as ExpandMoreIcon,
-  ExpandLess as ExpandLessIcon,
   DevicesOther as DeviceIcon,
   Business as BusinessIcon,
   Refresh as RefreshIcon,
@@ -46,19 +44,14 @@ import {
   Edit as EditIcon,
   Save as SaveIcon,
   Cancel as CancelIcon,
-  Camera as ScreenshotIcon,
   SystemUpdate as UpdateIcon,
   Circle as CircleIcon,
-  AccessTime as AccessTimeIcon,
-  CalendarToday as CalendarTodayIcon,
-  Link as LinkIcon,
   Clear,
   ArrowUpward,
   ArrowDownward,
 } from '@mui/icons-material';
 import { playerAPI, companyAPI } from '../../hooks/apiClient';
 import { firebaseService } from '../../services/firebaseService';
-import { browserAuth } from '../../contexts/AuthContext';
 import { useUser } from '../../contexts/UserContext';
 
 // PlayerCard component moved outside

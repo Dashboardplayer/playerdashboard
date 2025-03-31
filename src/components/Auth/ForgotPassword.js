@@ -1,6 +1,6 @@
 // ForgotPassword.js
 import React, { useState } from 'react';
-import { Container, Box, Typography, TextField, Button, Alert, Paper, Link, useTheme, useMediaQuery, CircularProgress } from '@mui/material';
+import { Container, Box, Typography, TextField, Button, Alert, Paper, Link, useTheme, CircularProgress } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { LockOutlined } from '@mui/icons-material';
 
@@ -11,7 +11,6 @@ function ForgotPassword() {
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
   const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
   const handleResetPassword = async (e) => {
     e.preventDefault();

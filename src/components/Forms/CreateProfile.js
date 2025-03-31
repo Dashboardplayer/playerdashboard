@@ -1,7 +1,7 @@
 // CreateProfile.js
 import React, { useState, useEffect } from 'react';
-import { mongoClient } from '../../hooks/mongoClient.js';
 import { useNavigate } from 'react-router-dom';
+import { useUser, useCreateProfile, useUpdateProfile } from '../../hooks/useApi';
 import { Box, Button, TextField, Typography } from '@mui/material';
 
 function CreateProfile() {
@@ -9,58 +9,45 @@ function CreateProfile() {
   const [companyId, setCompanyId] = useState('');
   const [isCompanyPreAssigned, setIsCompanyPreAssigned] = useState(false);
   const navigate = useNavigate();
+  
+  const { data: user } = useUser();
+  const createProfileMutation = useCreateProfile();
+  const updateProfileMutation = useUpdateProfile();
 
   useEffect(() => {
-    async function getUserProfile() {
-      const { data: userData, error: userError } = await mongoClient.auth.getUser();
-      if (userError) {
-        console.error('Error getting user:', userError);
-        return;
-      }
-      const user = userData?.user;
-      if (!user) return;
-
-      // Probeer een bestaand profiel op te halen
-      const { data: existingProfile } = await mongoClient
-        .from('profiles')
-        .select('company_id, role')
-        .eq('id', user.id)
-        .maybeSingle();
-      
-      if (existingProfile && existingProfile.company_id) {
-        setCompanyId(existingProfile.company_id);
-        setIsCompanyPreAssigned(true);
-      }
-      if (existingProfile && existingProfile.role) {
-        setRole(existingProfile.role);
-      }
+    if (user?.profile?.company_id) {
+      setCompanyId(user.profile.company_id);
+      setIsCompanyPreAssigned(true);
     }
-    getUserProfile();
-  }, []);
+    if (user?.profile?.role) {
+      setRole(user.profile.role);
+    }
+  }, [user]);
 
   const handleProfileCreation = async (e) => {
     e.preventDefault();
 
-    const { data: userData, error: userError } = await mongoClient.auth.getUser();
-    if (userError) {
-      alert('Error retrieving user: ' + userError.message);
-      return;
-    }
-    const user = userData?.user;
     if (!user) {
       alert('Geen ingelogde gebruiker gevonden.');
       return;
     }
 
-    const { error } = await mongoClient
-      .from('profiles')
-      .insert([{ id: user.id, role, company_id: companyId }]);
-    
-    if (error) {
-      alert('Fout bij het aanmaken van het profiel: ' + error.message);
-    } else {
-      alert('Profiel succesvol aangemaakt!');
+    const profileData = { 
+      id: user.id, 
+      role, 
+      company_id: companyId 
+    };
+
+    try {
+      if (user.profile) {
+        await updateProfileMutation.mutateAsync(profileData);
+      } else {
+        await createProfileMutation.mutateAsync(profileData);
+      }
+      alert('Profiel succesvol ' + (user.profile ? 'bijgewerkt!' : 'aangemaakt!'));
       navigate('/superadmin-dashboard');
+    } catch (error) {
+      alert('Fout bij het ' + (user.profile ? 'bijwerken' : 'aanmaken') + ' van het profiel: ' + error.message);
     }
   };
 
@@ -92,8 +79,13 @@ function CreateProfile() {
             readOnly: isCompanyPreAssigned,
           }}
         />
-        <Button variant="contained" type="submit" sx={{ mt: 2 }}>
-          Maak profiel aan
+        <Button 
+          variant="contained" 
+          type="submit" 
+          sx={{ mt: 2 }}
+          disabled={createProfileMutation.isPending || updateProfileMutation.isPending}
+        >
+          {user?.profile ? 'Werk profiel bij' : 'Maak profiel aan'}
         </Button>
       </form>
     </Box>

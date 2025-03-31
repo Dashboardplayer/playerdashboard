@@ -9,7 +9,6 @@ import {
   Divider,
   Alert,
   CircularProgress,
-  FormHelperText,
   IconButton,
   InputAdornment,
   Stack
@@ -18,7 +17,6 @@ import {
   Visibility, 
   VisibilityOff,
   Person as PersonIcon,
-  Security as SecurityIcon,
   Lock as LockIcon
 } from '@mui/icons-material';
 import { useUser } from '../../contexts/UserContext';
@@ -28,7 +26,7 @@ import PasswordRequirements from '../Auth/PasswordRequirements';
 import TwoFactorAuth from './TwoFactorAuth';
 
 function Settings() {
-  const { profile, updateProfile } = useUser();
+  const { profile } = useUser();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');

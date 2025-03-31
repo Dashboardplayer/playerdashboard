@@ -33,8 +33,6 @@ const PasswordRequirements = ({ password }) => {
     }
   ];
 
-  const allRequirementsMet = requirements.every(req => req.met);
-
   return (
     <Box sx={{ mt: 1.5, mb: 2 }}>
       <Typography
