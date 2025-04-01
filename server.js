@@ -34,19 +34,6 @@ const playerRoutes = require('./src/routes/player');
 // Load environment variables
 dotenv.config();
 
-// Initialize Express app
-const app = express();
-const PORT = process.env.PORT || 5001;
-
-// Trust proxy - required for rate limiting behind reverse proxy
-app.set('trust proxy', 1);
-
-// Apply security headers
-app.use(helmet());
-
-// Parse JSON bodies
-app.use(express.json({ limit: '10mb' }));
-
 // Validate required environment variables
 const requiredEnvVars = ['JWT_SECRET', 'MONGO_URI'];
 const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
@@ -68,27 +55,12 @@ mongoose.connect(process.env.MONGO_URI, {
   process.exit(1);
 });
 
-// Rate limiting configurations
-const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10,
-  message: { error: 'Te veel inlogpogingen. Probeer het later opnieuw.' },
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req) => {
-    return req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
-  }
-});
+// Apply routes
+const app = express();
+const PORT = process.env.PORT || 5001;
 
-// Authentication limiter
-const authLimiter = rateLimit({
-  windowMs: 5 * 60 * 1000, // 5 minutes
-  max: 5,
-  message: { error: 'Te veel inlogpogingen. Probeer het over 5 minuten opnieuw.' },
-  keyGenerator: (req) => {
-    return req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
-  }
-});
+// Configure trust proxy
+app.set('trust proxy', 1);
 
 // Parse allowed origins from environment variable
 const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'];
@@ -124,13 +96,84 @@ const corsOptions = {
   maxAge: corsMaxAge
 };
 
+// Standard API limiter for mutations (POST, PUT, DELETE)
+const mutationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // 100 requests per 15 minutes
+  message: { error: 'Te veel mutatie verzoeken. Probeer het later opnieuw.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+// More permissive limiter for GET requests
+const queryLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 300, // 300 requests per minute
+  message: { error: 'Te veel data verzoeken. Probeer het later opnieuw.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+// Special limiter for real-time endpoints
+const realtimeLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 600, // 600 requests per minute (10 requests per second)
+  message: { error: 'Te veel real-time verzoeken. Probeer het later opnieuw.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+// Authentication limiter
+const authLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000, // 5 minutes
+  max: 5, // 5 attempts
+  message: { error: 'Te veel inlogpogingen. Probeer het over 5 minuten opnieuw.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+// Rate limiting configurations
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // Allow more attempts during development
+  message: { error: 'Te veel inlogpogingen. Probeer het later opnieuw.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
 // Apply CORS
 app.use(cors(corsOptions));
 
 // Handle preflight requests for all routes
 app.options('*', cors(corsOptions));
 
+// Security Headers Configuration
+if (process.env.NODE_ENV === 'production') {
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://www.google.com", "https://www.gstatic.com"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+        fontSrc: ["'self'", "https://fonts.gstatic.com"],
+        imgSrc: ["'self'", "data:", "https:"],
+        connectSrc: ["'self'", "wss:", "ws:", "https:", "https://player-dashboard.onrender.com"],
+        frameSrc: ["'self'", "https://www.google.com"],
+        objectSrc: ["'none'"],
+        mediaSrc: ["'self'"],
+        formAction: ["'self'"],
+        upgradeInsecureRequests: []
+      }
+    },
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: { policy: "cross-origin" }
+  }));
+} else {
+  app.use(helmet());
+}
+
 // Configure body parser with explicit limits and types
+app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(bodyParser.json({ limit: '10mb' }));
 
