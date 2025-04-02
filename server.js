@@ -2062,6 +2062,120 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'build', 'index.html'));
 });
 
+// Add a new endpoint for public player registration
+app.post('/api/public/register-player', async (req, res) => {
+  try {
+    console.log('📱 New device registration attempt:', req.body);
+    
+    const { device_id } = req.body;
+    let { company_id, name } = req.body;
+    
+    // Validate required fields
+    if (!device_id) {
+      console.log('❌ Missing device_id in registration request');
+      return res.status(400).json({ error: 'Device ID is required' });
+    }
+    
+    // Use default company if not provided
+    if (!company_id) {
+      company_id = "NOCOMPANY";
+      console.log('⚠️ No company_id provided, using default:', company_id);
+    }
+    
+    // Check if player with this device_id already exists
+    const existingPlayer = await Player.findOne({ device_id });
+    if (existingPlayer) {
+      console.log('ℹ️ Device already registered:', device_id, 'Company:', existingPlayer.company_id);
+      return res.status(200).json({ 
+        message: 'Player already registered',
+        player: existingPlayer
+      });
+    }
+    
+    // Create new player
+    const player = new Player({
+      device_id,
+      company_id,
+      name: name || `Android Player - ${device_id.substring(0, 6)}`,
+      current_url: req.body.current_url || '',
+      is_online: true
+    });
+    
+    await player.save();
+    console.log('✅ New player registered successfully:', device_id, 'Company:', company_id);
+    broadcastEvent('player_created', player);
+    return res.status(201).json(player);
+  } catch (error) {
+    console.error('❌ Error registering player:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Add a simple form-based player creation endpoint
+app.post('/create-player', async (req, res) => {
+  try {
+    console.log('📝 New player creation from form:', req.body);
+    
+    const { deviceId } = req.body;
+    let { companyId, name } = req.body;
+    
+    // Validate required fields
+    if (!deviceId) {
+      console.log('❌ Missing deviceId in form submission');
+      return res.status(400).send('Device ID is required');
+    }
+    
+    // Use default company if not provided
+    if (!companyId) {
+      companyId = "NOCOMPANY";
+      console.log('⚠️ No companyId provided in form, using default:', companyId);
+    }
+    
+    // Check if player with this device_id already exists
+    const existingPlayer = await Player.findOne({ device_id: deviceId });
+    if (existingPlayer) {
+      console.log('ℹ️ Device already registered via form:', deviceId);
+      return res.status(200).send(`
+        <html>
+          <head><title>Player Already Registered</title></head>
+          <body>
+            <h1>Player Already Registered</h1>
+            <p>Player with device ID "${deviceId}" is already registered.</p>
+            <p><a href="/">Return to Dashboard</a></p>
+          </body>
+        </html>
+      `);
+    }
+    
+    // Create new player
+    const player = new Player({
+      device_id: deviceId,
+      company_id: companyId,
+      name: name || `Player - ${deviceId.substring(0, 6)}`,
+      current_url: req.body.currentUrl || '',
+      is_online: req.body.isOnline === 'true'
+    });
+    
+    await player.save();
+    console.log('✅ New player created via form:', deviceId, 'Company:', companyId);
+    broadcastEvent('player_created', player);
+    
+    return res.status(201).send(`
+      <html>
+        <head><title>Player Created</title></head>
+        <body>
+          <h1>Player Created Successfully</h1>
+          <p>Player with device ID "${deviceId}" has been registered.</p>
+          <p><a href="/">Return to Dashboard</a></p>
+        </body>
+      </html>
+    `);
+  } catch (error) {
+    console.error('❌ Error creating player from form:', error);
+    res.status(500).send(`Error: ${error.message}`);
+  }
+});
+
 // Start the server
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
