@@ -1172,7 +1172,82 @@ function PlayerManagement() {
   // Add useEffect for initial data fetch
   useEffect(() => {
     refreshData();
-  }, []); // Empty dependency array means this runs once on mount
+  }, []);
+
+  // Add WebSocket handler for real-time updates
+  useEffect(() => {
+    const handleWebSocketMessage = (event) => {
+      try {
+        const message = JSON.parse(event.data);
+        
+        console.log('PlayerManagement received WebSocket message:', message.type, message.data);
+        
+        // Update local state based on WebSocket messages
+        switch (message.type) {
+          case 'player_created':
+            if (message.data) {
+              console.log('Adding new player to state:', message.data);
+              setPlayers(prevPlayers => [...prevPlayers, message.data]);
+              setSuccess('Player added');
+            }
+            break;
+          case 'player_updated':
+            if (message.data && message.data._id) {
+              console.log('Updating player in state:', message.data._id);
+              setPlayers(prevPlayers => 
+                prevPlayers.map(player => 
+                  player._id === message.data._id ? {...player, ...message.data} : player
+                )
+              );
+            }
+            break;
+          case 'player_deleted':
+            if (message.data && message.data.id) {
+              console.log('Removing player from state:', message.data.id);
+              setPlayers(prevPlayers => {
+                // Log the current players and the one being removed
+                console.log('Current players:', prevPlayers.map(p => p._id));
+                console.log('Removing player with id:', message.data.id);
+                
+                return prevPlayers.filter(player => player._id !== message.data.id);
+              });
+              setSuccess('Player deleted');
+            }
+            break;
+          case 'company_updated':
+          case 'company_created':
+          case 'company_deleted':
+            // Refresh companies data
+            const fetchCompanies = async () => {
+              try {
+                const companiesRes = await companyAPI.getAll();
+                if (companiesRes.error) throw new Error(companiesRes.error);
+                setCompanies(companiesRes.data || []);
+              } catch (err) {
+                console.error('Error fetching companies:', err);
+              }
+            };
+            fetchCompanies();
+            break;
+          default:
+            break;
+        }
+      } catch (error) {
+        console.error('Error handling WebSocket message:', error);
+      }
+    };
+
+    // Subscribe to WebSocket events
+    if (window.ws) {
+      window.ws.addEventListener('message', handleWebSocketMessage);
+    }
+
+    return () => {
+      if (window.ws) {
+        window.ws.removeEventListener('message', handleWebSocketMessage);
+      }
+    };
+  }, []);
 
   // Add a refresh function that can be passed to child components
   const refreshData = async () => {
@@ -1322,16 +1397,15 @@ function PlayerManagement() {
     }));
   };
 
-  // Update handleUrlUpdate to refresh data after successful update
+  // Update handleUrlUpdate to rely on WebSocket for updates
   const handleUrlUpdate = async (playerId, newUrl) => {
     try {
       const { error } = await playerAPI.update(playerId, { current_url: newUrl });
       if (error) throw new Error(error);
       
-      // Refresh data instead of just updating local state
-      await refreshData();
+      // Don't refresh data - the WebSocket will handle the update
       setEditingUrl({ ...editingUrl, [playerId]: false });
-      setSuccess('URL successfully updated');
+      setSuccess('URL update request sent');
     } catch (err) {
       setError('Failed to update URL: ' + err.message);
     }
@@ -1352,7 +1426,7 @@ function PlayerManagement() {
     setDeleteDialogOpen(true);
   };
 
-  // Update handleDeleteConfirm to refresh data after successful deletion
+  // Update handleDeleteConfirm to rely on WebSocket for updates
   const handleDeleteConfirm = async () => {
     if (!playerToDelete) {
       console.error('No player selected for deletion');
@@ -1363,12 +1437,12 @@ function PlayerManagement() {
       const { error } = await playerAPI.delete(playerToDelete._id);
       if (error) throw new Error(error);
       
-      // Refresh data after successful deletion
-      await refreshData();
-      
-      setSuccess('Player successfully deleted');
+      // Don't refresh data - the WebSocket will handle the update
+      // Just set UI state
       setDeleteDialogOpen(false);
       setPlayerToDelete(null);
+      
+      // The success message will be set by the WebSocket handler
     } catch (err) {
       console.error('Failed to delete player:', err);
       setError(`Failed to delete player: ${err.message}`);
@@ -1387,7 +1461,7 @@ function PlayerManagement() {
     setDetailsDialogOpen(true);
   };
 
-  // Update handleBulkUrlUpdate to refresh data after successful update
+  // Update handleBulkUrlUpdate to rely on WebSocket for updates
   const handleBulkUrlUpdate = async (playerIds, newUrl) => {
     try {
       await Promise.all(
@@ -1396,16 +1470,15 @@ function PlayerManagement() {
         )
       );
       
-      // Refresh data after successful bulk update
-      await refreshData();
-      setSuccess('URLs updated successfully');
+      // Don't refresh data - the WebSocket will handle the update
+      setSuccess('URL update request sent successfully');
     } catch (err) {
       setError('Failed to update URLs: ' + err.message);
       throw err;
     }
   };
 
-  // Update handleBulkCommand to refresh data after successful command
+  // Update handleBulkCommand to rely on WebSocket for updates
   const handleBulkCommand = async (playerIds, command) => {
     if (playerIds.length === 0) {
       setError('Please select players first');
@@ -1423,8 +1496,7 @@ function PlayerManagement() {
         )
       );
       
-      // Refresh data after successful command
-      await refreshData();
+      // Don't refresh data - the WebSocket will handle the update
       setSuccess(`${command} command sent to selected players`);
     } catch (err) {
       setError(`Failed to send ${command} command: ${err.message}`);

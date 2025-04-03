@@ -11,6 +11,13 @@
 # production
 /build
 
+# Specific files to ignore
+playerdashbpardapp
+readme.md
+check_mongodb.js
+check_player.js
+verify_player.js
+
 # misc
 .DS_Store
 .env

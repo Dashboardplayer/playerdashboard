@@ -30,6 +30,7 @@ const { isTokenBlacklisted, addToBlacklist } = require('./src/services/tokenBlac
 const { auth, authorize } = require('./src/middleware/auth');
 const path = require('path');
 const playerRoutes = require('./src/routes/player');
+const { secureLog } = require('./src/utils/secureLogger');
 
 // Load environment variables
 dotenv.config();
@@ -38,7 +39,7 @@ dotenv.config();
 const requiredEnvVars = ['JWT_SECRET', 'MONGO_URI'];
 const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
 if (missingEnvVars.length > 0) {
-  console.error('Error: Missing required environment variables:', missingEnvVars.join(', '));
+  secureLog.error('Error: Missing required environment variables:', missingEnvVars.join(', '));
   process.exit(1);
 }
 
@@ -48,10 +49,10 @@ mongoose.connect(process.env.MONGO_URI, {
   useUnifiedTopology: true,
 })
 .then(() => {
-  console.log('✅ MongoDB Connected successfully');
+  secureLog.info('✅ MongoDB Connected successfully');
 })
 .catch((err) => {
-  console.error('❌ MongoDB Connection Error:', err);
+  secureLog.error('❌ MongoDB Connection Error:', err);
   process.exit(1);
 });
 
@@ -179,7 +180,7 @@ app.use(bodyParser.json({ limit: '10mb' }));
 
 // Add request logging middleware
 app.use((req, res, next) => {
-  console.log(`${req.method} ${req.path}`);
+  secureLog.info(`${req.method} ${req.path}`);
   next();
 });
 
@@ -239,9 +240,9 @@ if (process.env.MAILJET_API_KEY && process.env.MAILJET_SECRET_KEY) {
     apiKey: process.env.MAILJET_API_KEY,
     apiSecret: process.env.MAILJET_SECRET_KEY
   });
-  console.log('Mailjet client initialized successfully');
+  secureLog.info('Mailjet client initialized successfully');
 } else {
-  console.log('Mailjet credentials not found, email functionality will be unavailable');
+  secureLog.warn('Mailjet credentials not found, email functionality will be unavailable');
 }
 
 // Token generation function with enhanced security
@@ -519,119 +520,46 @@ const validateMessage = (message) => {
   }
 };
 
-// WebSocket connection handler
+// Handle WebSocket connections
 wss.on('connection', function connection(ws, req) {
   console.log('New WebSocket connection established');
   ws.isAlive = true;
   ws.user = req.user;
-  ws.clientId = null;
-  
-  // Add connection to active connections map
-  ACTIVE_CONNECTIONS.set(ws, {
-    userId: req.user.id,
-    lastVerified: Date.now(),
-    token: req.token
-  });
   
   // Set up heartbeat for this connection
   const heartbeat = setInterval(() => {
     if (!ws.isAlive) {
       clearInterval(heartbeat);
-      ACTIVE_CONNECTIONS.delete(ws);
       return ws.terminate();
     }
     ws.isAlive = false;
-    ws.ping();
+    ws.send(JSON.stringify({
+      type: 'heartbeat',
+      timestamp: Date.now()
+    }));
   }, HEARTBEAT_INTERVAL);
 
-  // Set up token verification interval
-  const tokenVerifier = setInterval(async () => {
-    try {
-      const connInfo = ACTIVE_CONNECTIONS.get(ws);
-      if (!connInfo) {
-        clearInterval(tokenVerifier);
-        return ws.terminate();
-      }
-
-      // Verify token is still valid
-      try {
-        const decoded = jwt.verify(connInfo.token, process.env.JWT_SECRET, {
-          algorithms: ['HS256'],
-          audience: 'player-dashboard-api',
-          issuer: 'player-dashboard'
-        });
-
-        // Check if token is blacklisted
-        const isBlacklisted = await isTokenBlacklisted(decoded.jti);
-        if (isBlacklisted) {
-          console.log('Token blacklisted, terminating WebSocket connection');
-          ws.close(4401, 'Token has been revoked');
-          return;
-        }
-
-        // Verify user still exists and has same role
-        const user = await User.findById(decoded.sub);
-        if (!user || user.role !== decoded.role) {
-          console.log('User changed or deleted, terminating WebSocket connection');
-          ws.close(4401, 'User authentication invalid');
-          return;
-        }
-
-        // Update last verification time
-        connInfo.lastVerified = Date.now();
-        ACTIVE_CONNECTIONS.set(ws, connInfo);
-      } catch (error) {
-        console.log('Token verification failed:', error.message);
-        ws.close(4401, 'Token verification failed');
-      }
-    } catch (error) {
-      console.error('Error in token verification interval:', error);
-      ws.close(4400, 'Internal verification error');
-    }
-  }, TOKEN_VERIFICATION_INTERVAL);
-
   // Handle pong responses
-  ws.on('pong', () => {
-    ws.isAlive = true;
-  });
-
-  // Clear intervals and remove from active connections on close
-  ws.on('close', () => {
-    clearInterval(heartbeat);
-    clearInterval(tokenVerifier);
-    ACTIVE_CONNECTIONS.delete(ws);
-  });
-
-  // Handle incoming messages
-  ws.on('message', function incoming(message) {
+  ws.on('message', (message) => {
     try {
-      const parsedMessage = JSON.parse(message);
-      if (!validateMessage(parsedMessage)) {
-        console.error('Invalid message format');
+      const data = JSON.parse(message);
+      if (data.type === 'heartbeat') {
+        ws.isAlive = true;
         return;
       }
-      
-      switch (parsedMessage.type) {
-        case 'authenticate':
-          handleAuthentication(ws, parsedMessage);
-          break;
-        case 'status_update':
-          handleStatusUpdate(ws, parsedMessage.data);
-          break;
-        case 'command_response':
-          handleCommandResponse(ws, parsedMessage.data);
-          break;
-        default:
-          console.log('Unknown message type:', parsedMessage.type);
-      }
+      handleWebSocketMessage(ws, data);
     } catch (error) {
-      console.error('Error processing message:', error);
-      ws.close(4400, 'Invalid message');
+      console.error('Error processing WebSocket message:', error);
     }
+  });
+
+  // Clear intervals on close
+  ws.on('close', () => {
+    clearInterval(heartbeat);
   });
 });
 
-// Modify the authenticateWSConnection function to store the token
+// Handle WebSocket authentication
 const authenticateWSConnection = (req, callback) => {
   try {
     let token = null;
@@ -652,38 +580,33 @@ const authenticateWSConnection = (req, callback) => {
     }
     
     try {
-      // Use the same verification options as HTTP endpoints
       const decoded = jwt.verify(token, process.env.JWT_SECRET, {
         algorithms: ['HS256'],
         audience: 'player-dashboard-api',
-        issuer: 'player-dashboard',
-        clockTolerance: 30
+        issuer: 'player-dashboard'
       });
 
-      // Comprehensive token validation
       if (!decoded.sub || !decoded.email || !decoded.role) {
         console.log('WebSocket token missing required claims');
         callback(new Error('Invalid token format'));
         return;
       }
 
-      // Store user info and token in request object
       req.user = {
         id: decoded.sub,
         email: decoded.email,
         role: decoded.role,
         company_id: decoded.company_id
       };
-      req.token = token; // Store the token for later use
       
-      console.log('WebSocket authenticated for user:', decoded.email);
+      console.log('WebSocket authenticated for user:', { email: decoded.email });
       callback(null);
     } catch (error) {
       console.log('WebSocket token verification failed:', error.message);
       callback(new Error('Invalid token'));
     }
   } catch (error) {
-    console.log('WebSocket authentication error:', error.message);
+    console.error('WebSocket authentication error:', error);
     callback(new Error('Authentication failed'));
   }
 };
@@ -878,35 +801,38 @@ app.put('/api/players/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// Delete a player
-app.delete('/api/players/:id', authenticateToken, async (req, res) => {
+// Delete player
+app.delete('/api/players/:id', auth, authorize(['superadmin', 'bedrijfsadmin']), async (req, res) => {
   try {
     const { id } = req.params;
+    const user = req.user;
     
-    // Validate MongoDB ObjectId
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ error: 'Invalid player ID format' });
-    }
-    
-    // Check if player exists
+    // Find the player first
     const player = await Player.findById(id);
     if (!player) {
       return res.status(404).json({ error: 'Player not found' });
     }
     
-    // Only superadmin can delete players
-    if (req.user.role !== 'superadmin') {
-      return res.status(403).json({ error: 'Only superadmins can delete players' });
+    // Check if user has permission to delete this player
+    if (user.role !== 'superadmin' && player.company_id !== user.company_id) {
+      return res.status(403).json({ error: 'Not authorized to delete this player' });
+    }
+    
+    // Delete all commands associated with this player
+    try {
+      await Command.deleteMany({ player_id: id });
+    } catch (error) {
+      console.error('Error deleting player commands:', error);
+      // Continue with player deletion even if command deletion fails
     }
     
     // Delete the player
-    await Player.findByIdAndDelete(id);
+    await player.deleteOne();
     
-    // Also delete any associated commands
-    await Command.deleteMany({ player_id: id });
-    
+    // Broadcast the deletion event
     broadcastEvent('player_deleted', { id });
-    return res.status(200).json({ message: 'Player deleted successfully' });
+    
+    res.status(204).send();
   } catch (error) {
     console.error('Error deleting player:', error);
     res.status(500).json({ error: error.message });
@@ -1644,62 +1570,34 @@ app.post('/api/auth/resend-invitation/:userId', authenticateToken, async (req, r
 app.get('/api/auth/verify-token', async (req, res) => {
   try {
     const { token } = req.query;
-    console.log('🔍 Verify token request received');
-    console.log('Query parameters:', req.query);
+    secureLog.info('Verify token request received');
 
     if (!token) {
-      console.log('❌ No token provided in verify-token request');
+      secureLog.warn('No token provided');
       return res.status(400).json({ error: 'Token is required' });
     }
 
-    console.log('🔑 Verifying token:', token);
-
     // Find user with valid registration token
-    console.log('📝 Querying MongoDB with:', {
-      registrationToken: token,
-      registrationTokenExpires: { $gt: Date.now() },
-      isActive: false
-    });
-
     const user = await User.findOne({
       registrationToken: token,
       registrationTokenExpires: { $gt: Date.now() },
       isActive: false
     });
 
-    console.log('📝 MongoDB query result:', user ? {
-      id: user._id,
-      email: user.email,
-      role: user.role,
-      company_id: user.company_id,
-      isActive: user.isActive,
-      registrationToken: user.registrationToken,
-      registrationTokenExpires: user.registrationTokenExpires
-    } : 'No user found');
-
     if (!user) {
-      console.log('❌ No user found with token:', token);
+      secureLog.warn('Invalid or expired token');
       return res.status(400).json({ error: 'Invalid or expired registration token' });
     }
 
-    console.log('✅ Found user:', {
-      email: user.email,
-      role: user.role,
-      company_id: user.company_id,
-      isActive: user.isActive,
-      tokenExpires: user.registrationTokenExpires
-    });
-
-    // Get company name if company_id exists
     let company_name = '';
     if (user.company_id) {
-      console.log('🏢 Looking up company with ID:', user.company_id);
+      secureLog.info('Looking up company');
       const company = await Company.findOne({ company_id: user.company_id });
       if (company) {
         company_name = company.company_name;
-        console.log('✅ Found company:', company_name);
+        secureLog.info('Company found');
       } else {
-        console.log('⚠️ Company not found for ID:', user.company_id);
+        secureLog.warn('Company not found');
       }
     }
 
@@ -1710,14 +1608,11 @@ app.get('/api/auth/verify-token', async (req, res) => {
       company_id: user.company_id,
       company_name
     };
-    console.log('📤 Sending response:', response);
+    secureLog.info('Sending response');
 
     return res.json(response);
   } catch (error) {
-    console.error('❌ Token verification error:', {
-      message: error.message,
-      stack: error.stack
-    });
+    secureLog.error('Token verification error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

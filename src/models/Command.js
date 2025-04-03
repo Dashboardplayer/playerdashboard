@@ -1,4 +1,4 @@
-import mongoose from 'mongoose';
+const mongoose = require('mongoose');
 
 // Command Schema - Replaces commands table in Supabase
 const commandSchema = new mongoose.Schema({
@@ -32,4 +32,4 @@ const commandSchema = new mongoose.Schema({
 
 // Create and export Command model
 const Command = mongoose.model('Command', commandSchema);
-export default Command;
+module.exports = Command;

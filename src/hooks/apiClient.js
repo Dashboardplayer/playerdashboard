@@ -1,103 +1,21 @@
 // API client using fetch API with localStorage fallback for offline/development usage
-import { browserAuth } from '../utils/browserUtils.js';
-import { generateUUID } from '../utils/uuidUtils.js';
+const { browserAuth } = require('../utils/browserUtils');
+const { generateUUID } = require('../utils/uuidUtils');
+const { secureLog } = require('../utils/secureLogger');
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
 
-// Token expiration and cache management
-const isTokenExpired = (token) => {
-  if (!token) return true;
-  
-  // Handle mock tokens differently
-  if (token.startsWith('mock_token_')) {
-    // Mock tokens expire after 24 hours
-    const timestamp = parseInt(token.split('_').pop());
-    return (Date.now() - timestamp) > (24 * 60 * 60 * 1000);
-  }
-  
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3) return true;
-    
-    const payload = JSON.parse(atob(parts[1]));
-    // Check if token has expired
-    // Add 1 minute buffer before actual expiration to prevent edge cases
-    return (payload.exp * 1000) < (Date.now() - 60000);
-  } catch (error) {
-    console.error('Error checking token expiration:', error);
-    return true;
-  }
-};
-
-const handleTokenExpiration = () => {
-  console.log('Token expired, clearing auth and cache...');
-  clearAllCache();
-  browserAuth.clearAuth();
-  window.dispatchEvent(new CustomEvent('auth_expired', {
-    detail: { message: 'Your session has expired. Please log in again.' }
-  }));
-  window.location.href = '/login';
-};
-
-const clearAllCache = () => {
-  console.log('Clearing all cached data...');
-  // Clear all cached data
-  localStorage.removeItem('cached_players');
-  localStorage.removeItem('cached_users');
-  localStorage.removeItem('cached_companies');
-  localStorage.removeItem('api_users');
-  localStorage.removeItem('mock_user');
-};
-
-// Fetch with authentication and error handling
-const fetchWithAuth = async (endpoint, options = {}) => {
-  try {
-    const user = browserAuth.getUser();
-    const headers = {
-      'Content-Type': 'application/json',
-      ...(user?.token ? { 'Authorization': `Bearer ${user.token}` } : {}),
-      ...options.headers
-    };
-
-    const response = await fetch(`${API_URL}${endpoint}`, {
-      ...options,
-      headers
-    });
-
-    const data = await response.json();
-    console.log(`API Response (${endpoint}):`, { status: response.status, data });
-
-    // Handle token expiration
-    if (response.status === 401 && data.error?.includes('expired')) {
-      handleTokenExpiration();
-      return { error: 'Session expired' };
-    }
-
-    // Handle other 401 Unauthorized
-    if (response.status === 401) {
-      browserAuth.clearAuth();
-      window.location.href = '/login';
-      return { error: data.error || 'Unauthorized access' };
-    }
-    
-    if (!response.ok) {
-      console.error(`API Error (${endpoint}):`, { status: response.status, data });
-      return { error: data.error || `API request failed with status ${response.status}` };
-    }
-
-    return { data, error: null };
-  } catch (error) {
-    console.error(`API Error (${endpoint}):`, error);
-    return { error: error.message || 'Network error', useBackup: true };
-  }
-};
+// Constants for token management
+const TOKEN_EXPIRY_BUFFER = 60000; // 1 minute buffer
+const INACTIVITY_TIMEOUT = 10 * 60 * 1000; // 10 minutes in milliseconds
+const TOKEN_CHECK_INTERVAL = 30000; // Check token every 30 seconds
 
 // Helper function to get cached companies from localStorage
 const getCachedCompanies = () => {
   try {
     return JSON.parse(localStorage.getItem('cached_companies') || '[]');
   } catch (error) {
-    console.error('Error parsing cached companies:', error);
+    secureLog.error('Error parsing cached companies');
     return [];
   }
 };
@@ -105,6 +23,238 @@ const getCachedCompanies = () => {
 // Helper function to store cached companies in localStorage
 const storeCachedCompanies = (companies) => {
   localStorage.setItem('cached_companies', JSON.stringify(companies));
+};
+
+// Helper function to get cached players from localStorage
+const getCachedPlayers = () => {
+  try {
+    return JSON.parse(localStorage.getItem('cached_players') || '[]');
+  } catch (error) {
+    console.error('Error parsing cached players:', error);
+    return [];
+  }
+};
+
+// Helper function to store cached players in localStorage
+const storeCachedPlayers = (players) => {
+  localStorage.setItem('cached_players', JSON.stringify(players));
+};
+
+// Helper function to get cached users from localStorage
+const getCachedUsers = () => {
+  try {
+    return JSON.parse(localStorage.getItem('cached_users') || '[]');
+  } catch (error) {
+    secureLog.error('Error parsing cached users');
+    return [];
+  }
+};
+
+// Helper function to store cached users in localStorage
+const storeCachedUsers = (users) => {
+  localStorage.setItem('cached_users', JSON.stringify(users));
+};
+
+let lastActivityTimestamp = Date.now();
+let activityCheckInterval = null;
+
+// Update last activity timestamp on user interaction
+const updateLastActivity = () => {
+  lastActivityTimestamp = Date.now();
+};
+
+// Add event listeners for user activity
+const setupActivityListeners = () => {
+  const events = ['mousedown', 'keydown', 'mousemove', 'wheel', 'touchstart', 'scroll'];
+  
+  events.forEach(event => {
+    window.addEventListener(event, updateLastActivity, { passive: true });
+  });
+};
+
+// Remove activity listeners
+const cleanupActivityListeners = () => {
+  const events = ['mousedown', 'keydown', 'mousemove', 'wheel', 'touchstart', 'scroll'];
+  
+  events.forEach(event => {
+    window.removeEventListener(event, updateLastActivity);
+  });
+};
+
+// Add a flag to prevent multiple logout attempts
+let isHandlingExpiration = false;
+
+const handleTokenExpiration = async (reason = 'expired') => {
+  // Prevent multiple simultaneous logout attempts
+  if (isHandlingExpiration) {
+    return;
+  }
+  
+  try {
+    isHandlingExpiration = true;
+    
+    // Clear WebSocket connection
+    if (ws) {
+      ws.close();
+      ws = null;
+      window.ws = null;
+    }
+
+    // Clear any pending reconnect attempts
+    if (reconnectTimeout) {
+      clearTimeout(reconnectTimeout);
+      reconnectTimeout = null;
+    }
+
+    // Clear authentication state
+    browserAuth.clearAuth();
+    
+    // Clear all cached data
+    clearAllCache();
+    
+    // Dispatch logout event
+    window.dispatchEvent(new CustomEvent('auth-expired', {
+      detail: { reason }
+    }));
+
+    // Force redirect to login if not already there
+    const currentPath = window.location.pathname;
+    if (!currentPath.includes('/login')) {
+      window.location.href = '/login';
+    }
+  } finally {
+    isHandlingExpiration = false;
+  }
+};
+
+// Update isTokenExpired to be more strict
+const isTokenExpired = (token) => {
+  if (!token) return true;
+  
+  try {
+    // For mock token in development
+    if (process.env.NODE_ENV === 'development' && token === 'mock-token') {
+      return false;
+    }
+
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    const expirationTime = payload.exp * 1000; // Convert to milliseconds
+    const currentTime = Date.now();
+    const timeUntilExpiry = expirationTime - currentTime;
+
+    // If token is expired or about to expire in the next minute
+    if (timeUntilExpiry <= 60000) { // 1 minute buffer
+      handleTokenExpiration('expired');
+      return true;
+    }
+
+    return false;
+  } catch (error) {
+    secureLog.error('Token validation error', { error: error.message });
+    handleTokenExpiration('invalid');
+    return true;
+  }
+};
+
+// Update fetchWithAuth to handle token expiration
+const fetchWithAuth = async (endpoint, options = {}) => {
+  const user = browserAuth.getUser();
+  
+  if (!user || !user.token || isTokenExpired(user.token)) {
+    handleTokenExpiration('expired');
+    return { error: 'Authentication required', useBackup: true };
+  }
+
+  try {
+    const response = await fetch(`${API_URL}${endpoint}`, {
+      ...options,
+      headers: {
+        ...options.headers,
+        'Authorization': `Bearer ${user.token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    const data = await response.json();
+
+    // Check for token expiration in response
+    if (response.status === 401 || 
+        (data.error && (
+          data.error.includes('jwt expired') || 
+          data.error.includes('invalid token') ||
+          data.error.includes('Token expired')
+        ))) {
+      handleTokenExpiration('expired');
+      return { error: 'Session expired', useBackup: true };
+    }
+
+    return { data, error: null };
+  } catch (error) {
+    secureLog.error('API request failed', {
+      endpoint,
+      error: error.message
+    });
+    return { error: error.message, useBackup: true };
+  }
+};
+
+// Token expiration and cache management
+const clearAllCache = () => {
+  secureLog.info('Clearing application cache');
+  localStorage.removeItem('cached_players');
+  localStorage.removeItem('cached_users');
+  localStorage.removeItem('cached_companies');
+  localStorage.removeItem('api_users');
+  localStorage.removeItem('mock_user');
+};
+
+// Start token expiration checker
+const startTokenExpirationChecker = () => {
+  // Set up activity monitoring
+  setupActivityListeners();
+  updateLastActivity(); // Initialize last activity
+  
+  const checkToken = () => {
+    const user = browserAuth.getUser();
+    if (!user?.token) return;
+    
+    const inactiveTime = Date.now() - lastActivityTimestamp;
+    
+    // Check for inactivity timeout
+    if (inactiveTime >= INACTIVITY_TIMEOUT) {
+      handleTokenExpiration('inactivity');
+      return;
+    }
+    
+    // Check actual token expiration
+    if (isTokenExpired(user.token)) {
+      handleTokenExpiration('expired');
+    }
+  };
+  
+  // Clear any existing interval
+  if (activityCheckInterval) {
+    clearInterval(activityCheckInterval);
+  }
+  
+  // Check immediately
+  checkToken();
+  
+  // Set up new interval
+  activityCheckInterval = setInterval(checkToken, TOKEN_CHECK_INTERVAL);
+  
+  // Clean up on page unload
+  window.addEventListener('unload', () => {
+    if (activityCheckInterval) {
+      clearInterval(activityCheckInterval);
+    }
+    cleanupActivityListeners();
+  });
+};
+
+// Initialize token checker when user logs in
+const initializeSession = () => {
+  startTokenExpirationChecker();
 };
 
 // WebSocket connection
@@ -116,14 +266,22 @@ let ws = null;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 5;
 const RECONNECT_DELAY = 3000; // 3 seconds
+let reconnectTimeout = null;
 
 // Cache storage with timestamps
 const cache = {
   players: { data: null, timestamp: null },
-  companies: { data: null, timestamp: null }
+  companies: { data: null, timestamp: null },
+  users: { data: null, timestamp: null }
 };
 
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+// Increase cache duration since we're using WebSockets for real-time updates
+const CACHE_DURATION = 30 * 60 * 1000; // 30 minutes
+
+// Add connection state tracking
+let isConnecting = false;
+let lastConnectionAttempt = 0;
+const MIN_RECONNECT_DELAY = 5000; // Minimum 5 seconds between connection attempts
 
 // Initialize WebSocket connection
 function initializeWebSocket() {
@@ -131,48 +289,98 @@ function initializeWebSocket() {
     const user = browserAuth.getUser();
     
     if (!user || !user.token) {
-      console.log('No valid auth token or user available for WebSocket connection');
+      secureLog.warn('WebSocket connection failed: No valid authentication');
       return;
     }
 
+    // Prevent multiple simultaneous connection attempts
+    if (isConnecting) {
+      secureLog.warn('WebSocket connection already in progress');
+      return;
+    }
+
+    // Enforce minimum delay between connection attempts
+    const now = Date.now();
+    if (now - lastConnectionAttempt < MIN_RECONNECT_DELAY) {
+      secureLog.warn('WebSocket reconnection attempted too soon');
+      return;
+    }
+
+    // Close existing connection if any
+    if (ws) {
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        secureLog.info('Closing existing WebSocket connection');
+        ws.close();
+      }
+      ws = null;
+    }
+
+    // Clear any pending reconnect
+    if (reconnectTimeout) {
+      clearTimeout(reconnectTimeout);
+      reconnectTimeout = null;
+    }
+
+    isConnecting = true;
+    lastConnectionAttempt = now;
+
+    // Create WebSocket with authentication token in protocol
     const protocols = [`jwt.${user.token}`];
     ws = new WebSocket(WS_URL, protocols);
     
+    window.ws = ws;
+    
     ws.onopen = () => {
-      console.log('WebSocket connected successfully');
-      reconnectAttempts = 0; // Reset attempts on successful connection
+      secureLog.info('WebSocket connection established');
+      isConnecting = false;
+      reconnectAttempts = 0;
       
-      // Send an initial authentication message with additional security measures
+      // Send initial heartbeat
       ws.send(JSON.stringify({ 
-        type: 'authenticate',
-        token: user.token,
-        timestamp: Date.now(),
-        clientId: generateUUID(),
-        userId: user.id
+        type: 'heartbeat',
+        timestamp: Date.now()
       }));
     };
 
     ws.onclose = async (event) => {
-      console.log('WebSocket disconnected:', event.code);
+      secureLog.info('WebSocket disconnected', { code: event.code });
+      
+      // Clear connection state
+      isConnecting = false;
+      ws = null;
+      window.ws = null;
       
       // Check if we have a valid token before attempting to reconnect
       const currentUser = browserAuth.getUser();
       
       if (!currentUser || !currentUser.token) {
-        console.log('No valid session for reconnection');
+        secureLog.warn('WebSocket reconnection failed: No valid session');
         return;
       }
 
+      // Handle authentication errors
+      if (event.code === 4401) {
+        secureLog.warn('WebSocket authentication failed, clearing session');
+        handleTokenExpiration('expired');
+        return;
+      }
+
+      // Only attempt reconnection if we haven't reached the maximum attempts
       if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-        setTimeout(() => {
+        const delay = RECONNECT_DELAY * Math.pow(2, reconnectAttempts);
+        reconnectTimeout = setTimeout(() => {
           reconnectAttempts++;
-          console.log(`Attempting to reconnect (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})...`);
+          secureLog.info('Attempting WebSocket reconnection', { 
+            attempt: reconnectAttempts,
+            maxAttempts: MAX_RECONNECT_ATTEMPTS,
+            delay: delay
+          });
           initializeWebSocket();
-        }, RECONNECT_DELAY * Math.pow(2, reconnectAttempts)); // Exponential backoff
+        }, delay);
       } else {
-        console.log('Max reconnection attempts reached');
+        secureLog.warn('WebSocket max reconnection attempts reached');
         // Reset reconnection attempts after a longer delay
-        setTimeout(() => {
+        reconnectTimeout = setTimeout(() => {
           reconnectAttempts = 0;
           initializeWebSocket();
         }, RECONNECT_DELAY * 5);
@@ -180,39 +388,34 @@ function initializeWebSocket() {
     };
 
     ws.onerror = (error) => {
-      console.log('WebSocket error occurred:', error);
+      secureLog.error('WebSocket error occurred', { 
+        message: error.message,
+        readyState: ws?.readyState
+      });
+      isConnecting = false;
     };
 
     ws.onmessage = (event) => {
       try {
-        const data = JSON.parse(event.data);
-        
-        // Handle authentication errors
-        if (data.type === 'auth_error') {
-          console.log('WebSocket authentication error:', data.message);
-          ws.close();
-          return;
-        }
-        
-        handleWebSocketMessage(data);
+        const message = JSON.parse(event.data);
+        handleWebSocketMessage(message);
       } catch (error) {
-        console.error('Error handling WebSocket message:', error);
+        secureLog.error('WebSocket message parsing error', { error: error.message });
       }
     };
   } catch (error) {
-    console.error('Error initializing WebSocket');
+    secureLog.error('WebSocket initialization error', { error: error.message });
+    isConnecting = false;
   }
 }
 
-// Re-initialize WebSocket when auth token changes
+// Modify the storage event listener to be more precise
+window.removeEventListener('storage', initializeWebSocket); // Remove any existing listener
 window.addEventListener('storage', (event) => {
-  if (event.key === 'authToken') {
-    if (ws) {
-      ws.close();
-      ws = null;
-    }
-    if (event.newValue) {
-      reconnectAttempts = 0; // Reset attempts when token changes
+  if (event.key === 'authToken' && event.newValue) {
+    // Only reinitialize if we don't have an active connection
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      reconnectAttempts = 0;
       initializeWebSocket();
     }
   }
@@ -225,35 +428,52 @@ if (browserAuth.getUser()) {
 
 // Handle incoming WebSocket messages
 const handleWebSocketMessage = (message) => {
-  // Ignore heartbeat messages
-  if (message.type === 'heartbeat') return;
+  try {
+    // Handle authentication errors in WebSocket messages
+    if (message.type === 'error' && message.error?.includes('jwt expired')) {
+      handleTokenExpiration('expired');
+      return;
+    }
 
-  console.log('Received WebSocket message:', message);
+    // Handle heartbeat responses
+    if (message.type === 'heartbeat') {
+      return;
+    }
 
-  switch (message.type) {
-    case 'company_created':
-    case 'company_updated':
-    case 'company_deleted':
-      console.log('Invalidating companies cache');
-      invalidateCache('companies');
-      // Also invalidate users and players as they might be affected
-      invalidateCache('users');
-      invalidateCache('players');
-      break;
-    case 'player_created':
-    case 'player_updated':
-    case 'player_deleted':
-      console.log('Invalidating players cache');
-      invalidateCache('players');
-      break;
-    case 'user_created':
-    case 'user_updated':
-    case 'user_deleted':
-      console.log('Invalidating users cache');
-      invalidateCache('users');
-      break;
-    default:
-      console.log('Unknown message type:', message.type);
+    // Handle entity updates
+    switch (message.type) {
+      case 'company_created':
+      case 'company_updated':
+      case 'company_deleted':
+        invalidateCache('companies');
+        window.dispatchEvent(new CustomEvent('company_update', { 
+          detail: { type: message.type, data: message.data }
+        }));
+        break;
+        
+      case 'player_created':
+      case 'player_updated':
+      case 'player_deleted':
+        invalidateCache('players');
+        window.dispatchEvent(new CustomEvent('player_update', { 
+          detail: { type: message.type, data: message.data }
+        }));
+        break;
+        
+      case 'user_created':
+      case 'user_updated':
+      case 'user_deleted':
+        invalidateCache('users');
+        window.dispatchEvent(new CustomEvent('user_update', { 
+          detail: { type: message.type, data: message.data }
+        }));
+        break;
+        
+      default:
+        secureLog.warn('Unknown WebSocket message type', { type: message.type });
+    }
+  } catch (error) {
+    secureLog.error('WebSocket message handling error', { error: error.message });
   }
 };
 
@@ -265,28 +485,39 @@ const invalidateCache = (type) => {
   }
 };
 
-// Request deduplication system
+// A simpler debounce implementation
 const pendingRequests = new Map();
 
-const deduplicateRequest = async (key, requestFn) => {
-  // Check if there's already a pending request for this key
+const debounce = (key, fn, wait) => {
+  // Check if there's already a pending request
   if (pendingRequests.has(key)) {
-    console.log(`Using pending request for ${key}`);
     return pendingRequests.get(key);
   }
 
-  // Create new request promise
-  const requestPromise = requestFn().finally(() => {
-    pendingRequests.delete(key);
+  // Create a new promise for this request
+  const promise = new Promise((resolve) => {
+    setTimeout(async () => {
+      try {
+        const result = await fn();
+        resolve(result);
+      } catch (error) {
+        console.error(`Error in debounced function for ${key}:`, error);
+        resolve({ error: error.message });
+      } finally {
+        // Remove from pending requests after execution
+        pendingRequests.delete(key);
+      }
+    }, wait);
   });
 
   // Store the promise
-  pendingRequests.set(key, requestPromise);
-  return requestPromise;
+  pendingRequests.set(key, promise);
+  
+  return promise;
 };
 
 // Modified API functions with request deduplication
-export const companyAPI = {
+const companyAPI = {
   getAll: async () => {
     const cacheKey = 'companies';
     
@@ -296,23 +527,49 @@ export const companyAPI = {
       return { data: cache.companies.data, error: null };
     }
 
-    return deduplicateRequest('getCompanies', async () => {
+    return debounce('getCompanies', async () => {
       try {
-        const result = await fetchWithAuth('/companies', { method: 'GET' });
+        const user = browserAuth.getUser();
         
-        if (!result.error) {
-          cache.companies = {
-            data: result.data,
-            timestamp: Date.now()
-          };
+        if (!user || !user.token) {
+          console.error('No authentication token or user found');
+          throw new Error('Authentication required');
+        }
+
+        const response = await fetch(`${API_URL}/companies`, {
+          headers: {
+            'Authorization': `Bearer ${user.token}`
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch companies: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        
+        // Cache the data
+        cache.companies = {
+          data: data,
+          timestamp: Date.now()
+        };
+        
+        // Store in localStorage for offline access
+        storeCachedCompanies(data);
+        
+        return { data: data, error: null };
+      } catch (error) {
+        console.error('Error fetching companies');
+        
+        // Try to get data from localStorage if available
+        const cachedData = getCachedCompanies();
+        if (cachedData && cachedData.length > 0) {
+          return { data: cachedData, error: null, fromCache: true };
         }
         
-        return result;
-      } catch (error) {
-        console.error('Error fetching companies:', error);
         return { data: null, error: error.message };
       }
-    });
+    }, 300);
   },
   
   create: async (companyData) => {
@@ -350,62 +607,71 @@ export const companyAPI = {
   }
 };
 
-// Helper function to get cached players from localStorage
-const getCachedPlayers = () => {
-  try {
-    return JSON.parse(localStorage.getItem('cached_players') || '[]');
-  } catch (error) {
-    console.error('Error parsing cached players:', error);
-    return [];
-  }
-};
-
-// Helper function to store cached players in localStorage
-const storeCachedPlayers = (players) => {
-  localStorage.setItem('cached_players', JSON.stringify(players));
-};
-
 // Modified API functions with request deduplication
-export const playerAPI = {
+const playerAPI = {
   getAll: async (companyId = null) => {
     try {
-      const user = browserAuth.getUser();
+      const cacheKey = `players_${companyId || 'all'}`;
       
-      if (!user || !user.token) {
-        console.error('No authentication token or user found');
-        throw new Error('Authentication required');
+      // Check cache validity first
+      if (cache.players?.data && Date.now() - cache.players.timestamp < CACHE_DURATION) {
+        secureLog.info('Using cached players data');
+        const filteredData = companyId
+          ? cache.players.data.filter(player => player.company_id === companyId)
+          : cache.players.data;
+        return { data: filteredData, error: null };
       }
-
-      // If user is not superadmin, force filter by their company_id
-      const finalCompanyId = user.role !== 'superadmin' ? user.company_id : companyId;
-
-      const response = await fetch(`${API_URL}/players`, {
-        headers: {
-          'Authorization': `Bearer ${user.token}`
+      
+      // Use unique key for this request
+      const requestKey = `getPlayers_${companyId || 'all'}_${Date.now()}`;
+      
+      return debounce(requestKey, async () => {
+        const user = browserAuth.getUser();
+        
+        if (!user || !user.token) {
+          secureLog.error('Authentication required for player data access');
+          throw new Error('Authentication required');
         }
-      });
 
-      if (!response.ok) {
-        throw new Error(`Failed to fetch players: ${response.statusText}`);
-      }
+        // If user is not superadmin, force filter by their company_id
+        const finalCompanyId = user.role !== 'superadmin' ? user.company_id : companyId;
 
-      const data = await response.json();
-      
-      // Filter by company if needed
-      const filteredData = finalCompanyId
-        ? data.filter(player => player.company_id === finalCompanyId)
-        : data;
+        secureLog.info('Fetching player data');
+        const response = await fetch(`${API_URL}/players`, {
+          headers: {
+            'Authorization': `Bearer ${user.token}`
+          }
+        });
 
-      return { data: filteredData, error: null };
+        if (!response.ok) {
+          throw new Error(`Failed to fetch players: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        
+        // Cache the data
+        cache.players = {
+          data: data,
+          timestamp: Date.now()
+        };
+        
+        // Filter by company if needed
+        const filteredData = finalCompanyId
+          ? data.filter(player => player.company_id === finalCompanyId)
+          : data;
+
+        secureLog.info('Players fetched successfully', { count: filteredData.length });
+        return { data: filteredData, error: null };
+      }, 300);
     } catch (error) {
-      console.error('Error in playerAPI.getAll:', error);
+      secureLog.error('Player data fetch error', { error: error.message });
       return { data: null, error: error.message };
     }
   },
   
   create: async (playerData) => {
     try {
-      console.log('Creating player with data:', {
+      secureLog.info('Creating new player', { 
         name: playerData.name,
         company_id: playerData.company_id
       });
@@ -413,7 +679,7 @@ export const playerAPI = {
       const currentUser = browserAuth.getUser();
       
       if (!currentUser || !currentUser.token) {
-        console.error('No authentication token or user found');
+        secureLog.error('Authentication required for player creation');
         throw new Error('Authentication required');
       }
 
@@ -435,106 +701,87 @@ export const playerAPI = {
       const data = await response.json();
       
       if (!response.ok) {
-        console.error('Player creation failed:', data);
+        secureLog.error('Player creation failed', { error: data.error });
         throw new Error(data.error || 'Failed to create player');
       }
 
-      console.log('Player created successfully:', {
+      secureLog.info('Player created successfully', {
         id: data.id,
-        name: data.name,
         company_id: data.company_id
       });
       
       return { data };
     } catch (error) {
-      console.error('Error in playerAPI.create:', error);
+      secureLog.error('Player creation error', { error: error.message });
       return { error: error.message };
     }
   },
   
   update: async (playerId, updates) => {
     try {
-      const user = browserAuth.getUser();
+      secureLog.info('Updating player', { 
+        playerId,
+        updatedFields: Object.keys(updates)
+      });
       
-      if (!user || !user.token) {
-        console.error('No authentication token or user found');
-        throw new Error('Authentication required');
-      }
-
-      const response = await fetch(`${API_URL}/players/${playerId}`, {
+      const result = await fetchWithAuth(`/players/${playerId}`, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${user.token}`
-        },
         body: JSON.stringify(updates)
       });
-
-      if (!response.ok) {
-        throw new Error('Failed to update player');
-      }
-
-      const data = await response.json();
       
-      // Update cache
-      const cachedPlayers = getCachedPlayers();
-      const playerIndex = cachedPlayers.findIndex(p => p.id === playerId);
-      if (playerIndex !== -1) {
-        cachedPlayers[playerIndex] = data;
-        storeCachedPlayers(cachedPlayers);
+      // If API call fails, update locally
+      if (result.useBackup) {
+        secureLog.warn('Updating player locally as backup');
+        const cachedPlayers = getCachedPlayers();
+        
+        // Find and update the player
+        const playerIndex = cachedPlayers.findIndex(p => p._id === playerId);
+        if (playerIndex !== -1) {
+          cachedPlayers[playerIndex] = {
+            ...cachedPlayers[playerIndex],
+            ...updates
+          };
+          storeCachedPlayers(cachedPlayers);
+          return { data: cachedPlayers[playerIndex], error: null };
+        }
+        
+        return { data: null, error: 'Player not found' };
       }
       
-      return { data, error: null };
+      // If successful, update cache
+      if (result.data && !result.error) {
+        const cachedPlayers = getCachedPlayers();
+        const playerIndex = cachedPlayers.findIndex(p => p._id === playerId);
+        if (playerIndex !== -1) {
+          cachedPlayers[playerIndex] = result.data;
+          storeCachedPlayers(cachedPlayers);
+        }
+        secureLog.info('Player updated successfully', { 
+          playerId,
+          updatedFields: Object.keys(updates)
+        });
+      }
+      
+      return result;
     } catch (error) {
-      console.error('Error updating player:', error);
-      return { data: null, error: error.message };
-    }
-  },
-
-  createCommand: async (playerId, commandData) => {
-    try {
-      const user = browserAuth.getUser();
-      
-      if (!user || !user.token) {
-        console.error('No authentication token or user found');
-        throw new Error('Authentication required');
-      }
-
-      const response = await fetch(`${API_URL}/players/${playerId}/commands`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${user.token}`
-        },
-        body: JSON.stringify({
-          command_type: commandData.type,
-          payload: commandData.payload || {}
-        })
+      secureLog.error('Player update error', { 
+        playerId,
+        error: error.message
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to create command');
-      }
-
-      const data = await response.json();
-      return { data, error: null };
-    } catch (error) {
-      console.error('Error creating command:', error);
-      return { data: null, error: error.message };
+      return { error: error.message };
     }
   },
-
+  
   delete: async (playerId) => {
     try {
       const user = browserAuth.getUser();
       
       if (!user || !user.token) {
-        console.error('No authentication token or user found');
+        secureLog.error('Authentication required for player deletion');
         throw new Error('Authentication required');
       }
 
-      console.log('Deleting player from database:', playerId);
+      secureLog.info('Deleting player', { playerId });
       const response = await fetch(`${API_URL}/players/${playerId}`, {
         method: 'DELETE',
         headers: {
@@ -559,88 +806,84 @@ export const playerAPI = {
 
       // Clear all cached data to ensure fresh state
       clearAllCache();
+      secureLog.info('Player deleted successfully', { playerId });
       
       return { data: { success: true }, error: null };
     } catch (error) {
-      console.error('Error deleting player:', error);
+      secureLog.error('Player deletion error', { error: error.message });
       return { error: error.message };
     }
   }
 };
 
-// Helper function to get cached users from localStorage
-const getCachedUsers = () => {
-  try {
-    return JSON.parse(localStorage.getItem('cached_users') || '[]');
-  } catch (error) {
-    console.error('Error parsing cached users:', error);
-    return [];
-  }
-};
-
-// Helper function to store cached users in localStorage
-const storeCachedUsers = (users) => {
-  localStorage.setItem('cached_users', JSON.stringify(users));
-};
-
 // Modified API functions with request deduplication
-export const userAPI = {
+const userAPI = {
   getAll: async (companyId = null) => {
-    const cacheKey = `users_${companyId || 'all'}`;
-    
-    // Check cache validity first
-    if (cache.users?.data && Date.now() - cache.users.timestamp < CACHE_DURATION) {
-      console.log('Using cached users data');
-      const cachedData = companyId
-        ? cache.users.data.filter(user => user.company_id === companyId)
-        : cache.users.data;
-      return { data: cachedData, error: null };
-    }
-
-    return deduplicateRequest(cacheKey, async () => {
-      try {
-        console.log('userAPI.getAll: Starting fetch', { companyId });
-        const url = companyId ? `${API_URL}/users?company_id=${companyId}` : `${API_URL}/users`;
-        const user = browserAuth.getUser();
-
-        // If user is not superadmin, force filter by their company_id
-        if (user && user.role !== 'superadmin' && !companyId) {
-          companyId = user.company_id;
-        }
-
-        const response = await fetch(companyId ? `${API_URL}/users?company_id=${companyId}` : `${API_URL}/users`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${user?.token}`
-          }
-        });
-
-        if (!response.ok) {
-          throw new Error(`Failed to fetch users: ${response.status}`);
-        }
-
-        const data = await response.json();
-        console.log('userAPI.getAll: Received data:', data);
-        
-        // Filter data by company_id if user is not superadmin
-        const filteredData = user?.role === 'superadmin' 
-          ? data 
-          : data.filter(u => u.company_id === user.company_id);
-
-        // Update cache with filtered data
-        if (!cache.users) cache.users = {};
-        cache.users = {
-          data: filteredData,
-          timestamp: Date.now()
-        };
-        
+    try {
+      const cacheKey = `users_${companyId || 'all'}`;
+      
+      // Check cache validity first
+      if (cache.users.data && Date.now() - cache.users.timestamp < CACHE_DURATION) {
+        secureLog.info('Using cached users data');
+        const filteredData = companyId
+          ? cache.users.data.filter(user => user.company_id === companyId)
+          : cache.users.data;
         return { data: filteredData, error: null };
-      } catch (error) {
-        console.error('userAPI.getAll: Error:', error);
-        return { data: null, error: error.message };
       }
-    });
+      
+      // Use unique key for this request
+      const requestKey = `getUsers_${companyId || 'all'}_${Date.now()}`;
+      
+      return debounce(requestKey, async () => {
+        try {
+          const user = browserAuth.getUser();
+          
+          if (!user || !user.token) {
+            secureLog.error('No authentication token or user found');
+            throw new Error('Authentication required');
+          }
+
+          // If user is not superadmin, force filter by their company_id
+          const finalCompanyId = user.role !== 'superadmin' ? user.company_id : companyId;
+
+          const response = await fetch(`${API_URL}/users`, {
+            headers: {
+              'Authorization': `Bearer ${user.token}`
+            }
+          });
+
+          if (!response.ok) {
+            throw new Error(`Failed to fetch users: ${response.statusText}`);
+          }
+
+          const data = await response.json();
+          
+          // Cache the data
+          cache.users = {
+            data: data,
+            timestamp: Date.now()
+          };
+          
+          // Filter by company if needed
+          const filteredData = finalCompanyId
+            ? data.filter(user => user.company_id === finalCompanyId)
+            : data;
+
+          secureLog.info('Users fetched successfully', {
+            count: filteredData.length,
+            roles: filteredData.map(u => u.role)
+          });
+
+          return { data: filteredData, error: null };
+        } catch (error) {
+          secureLog.error('Error in userAPI.getAll:', error);
+          return { data: null, error: error.message };
+        }
+      }, 300);
+    } catch (error) {
+      secureLog.error('Unexpected error in userAPI.getAll:', error);
+      return { data: null, error: error.message };
+    }
   },
   
   create: async (userData) => {
@@ -651,7 +894,7 @@ export const userAPI = {
     
     // If API call fails, store locally
     if (result.useBackup) {
-      console.log('Storing user locally as backup');
+      secureLog.warn('Storing user locally as backup');
       const cachedUsers = getCachedUsers();
       
       // Create a mock user with ID
@@ -673,6 +916,10 @@ export const userAPI = {
       const cachedUsers = getCachedUsers();
       cachedUsers.push(result.data);
       storeCachedUsers(cachedUsers);
+      secureLog.info('User created successfully', { 
+        id: result.data.id || result.data._id,
+        role: result.data.role
+      });
     }
     
     return result;
@@ -686,7 +933,7 @@ export const userAPI = {
     
     // If API call fails, update locally
     if (result.useBackup) {
-      console.log('Updating user locally as backup');
+      secureLog.warn('Updating user locally as backup');
       const cachedUsers = getCachedUsers();
       
       // Find and update the user
@@ -711,6 +958,10 @@ export const userAPI = {
         cachedUsers[userIndex] = result.data;
         storeCachedUsers(cachedUsers);
       }
+      secureLog.info('User updated successfully', { 
+        id: userId,
+        updatedFields: Object.keys(updates)
+      });
     }
     
     return result;
@@ -718,13 +969,13 @@ export const userAPI = {
 
   delete: async (userId) => {
     try {
-      console.log('Deleting user with ID:', userId);
+      secureLog.info('Deleting user', { userId });
       const result = await fetchWithAuth(`/users/${userId}`, {
         method: 'DELETE'
       });
 
       if (result.error) {
-        console.error('Error deleting user:', result.error);
+        secureLog.error('Error deleting user:', result.error);
         return { error: result.error };
       }
 
@@ -732,57 +983,48 @@ export const userAPI = {
       const cachedUsers = getCachedUsers();
       const updatedUsers = cachedUsers.filter(u => u.id !== userId && u._id !== userId);
       storeCachedUsers(updatedUsers);
+      secureLog.info('User deleted successfully', { userId });
 
       return { data: { success: true }, error: null };
     } catch (error) {
-      console.error('Error deleting user:', error);
+      secureLog.error('Error deleting user:', error);
       return { error: error.message };
     }
   },
 };
 
 // API functions for authentication
-export const authAPI = {
+const authAPI = {
   login: async (credentials) => {
     try {
-      const result = await fetchWithAuth('/auth/login', {
+      secureLog.info('Login attempt initiated');
+      
+      const response = await fetch(`${API_URL}/auth/login`, {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
         body: JSON.stringify(credentials)
       });
-      
-      // Handle API error response
-      if (result.error) {
-        return { data: null, error: result.error };
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        secureLog.warn('Login failed:', errorData);
+        return { error: errorData.message || `Login failed: ${response.status}` };
       }
+
+      const result = await response.json();
       
-      // Handle 2FA response
-      if (result.data?.requires2FA) {
-        return {
-          data: {
-            requires2FA: true,
-            tempToken: result.data.tempToken
-          },
-          error: null
-        };
+      if (result.token && result.user) {
+        browserAuth.setAuth(result.token, result.refreshToken, result.user);
+        secureLog.info('Login successful', { userId: result.user.id });
+        initializeSession(); // Start session monitoring
       }
-      
-      // If successful login through API, store token and user info
-      if (result.data?.token && result.data?.refreshToken && result.data?.user) {
-        browserAuth.setAuth(result.data.token, result.data.refreshToken, result.data.user);
-        return {
-          data: {
-            user: result.data.user,
-            token: result.data.token,
-            refreshToken: result.data.refreshToken
-          },
-          error: null
-        };
-      }
-      
-      return { data: null, error: 'Invalid response from server' };
+
+      return { data: result, error: null };
     } catch (error) {
-      console.error('Login error:', error);
-      return { data: null, error: error.message };
+      secureLog.error('Login error:', error);
+      return { error: error.message || 'Failed to login' };
     }
   },
   
@@ -802,16 +1044,13 @@ export const authAPI = {
   
   completeRegistration: async (data) => {
     try {
-      console.log('Completing registration for user:', { 
-        token: data.token ? '***' : undefined,
-        email: data.email
-      });
+      secureLog.info('Completing registration');
 
       const response = await fetch(`${API_URL}/auth/complete-registration`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${data.token}` // Include the registration token
+          'Authorization': `Bearer ${data.token}`
         },
         body: JSON.stringify({
           password: data.password,
@@ -821,35 +1060,36 @@ export const authAPI = {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
-        console.error('Registration completion failed:', errorData);
+        secureLog.warn('Registration completion failed:', errorData);
         return { error: errorData.message || `Failed to complete registration: ${response.status}` };
       }
 
       const result = await response.json();
       
-      // If registration completion was successful, store the token
       if (result.token && result.user) {
         browserAuth.setAuth(result.token, result.user);
-        console.log('Registration completed successfully for:', {
-          id: result.user.id,
-          email: result.user.email,
-          role: result.user.role
-        });
+        secureLog.info('Registration completed successfully', { userId: result.user.id });
       }
       
       return { data: result, error: null };
     } catch (error) {
-      console.error('Error completing registration:', error);
+      secureLog.error('Error completing registration:', error);
       return { error: error.message || 'Failed to complete registration' };
     }
   },
   
   logout: async () => {
+    if (activityCheckInterval) {
+      clearInterval(activityCheckInterval);
+      activityCheckInterval = null;
+    }
+    cleanupActivityListeners();
     browserAuth.clearAuth();
     if (ws) {
       ws.close();
       ws = null;
     }
+    secureLog.info('User logged out');
     return { error: null };
   },
   
@@ -891,26 +1131,31 @@ export const authAPI = {
 
   getUserById: async (userId) => {
     try {
+      const user = browserAuth.getUser();
+      if (!user?.token) {
+        return { error: 'Authentication required' };
+      }
+
       const response = await fetch(`${API_URL}/users/${userId}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+          'Authorization': `Bearer ${user.token}`
         }
       });
 
       if (!response.ok) {
+        secureLog.warn('User fetch failed', { userId, status: response.status });
         // If API call fails, use cached data
-        console.log('Using cached user as backup');
         const cachedUsers = getCachedUsers();
-        const user = cachedUsers.find(u => u.id === userId);
-        return { data: user || null, error: null };
+        const cachedUser = cachedUsers.find(u => u.id === userId);
+        return { data: cachedUser || null, error: null };
       }
 
       const data = await response.json();
       return { data, error: null };
     } catch (error) {
-      console.error('Error fetching user:', error);
+      secureLog.error('User fetch error', { userId });
       // On error, try to use cached data
       const cachedUsers = getCachedUsers();
       const user = cachedUsers.find(u => u.id === userId);
@@ -920,27 +1165,30 @@ export const authAPI = {
 
   getUserByEmail: async (email) => {
     try {
+      const user = browserAuth.getUser();
+      if (!user?.token) {
+        return { error: 'Authentication required' };
+      }
+
       const response = await fetch(`${API_URL}/users?email=${email}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+          'Authorization': `Bearer ${user.token}`
         }
       });
 
       if (!response.ok) {
-        // If API call fails, use cached data
-        console.log('Using cached user as backup');
+        secureLog.warn('User fetch failed', { status: response.status });
         const cachedUsers = getCachedUsers();
-        const user = cachedUsers.find(u => u.email === email);
-        return { data: user || null, error: null };
+        const cachedUser = cachedUsers.find(u => u.email === email);
+        return { data: cachedUser || null, error: null };
       }
 
       const data = await response.json();
       return { data: data[0] || null, error: null };
     } catch (error) {
-      console.error('Error fetching user:', error);
-      // On error, try to use cached data
+      secureLog.error('User fetch error');
       const cachedUsers = getCachedUsers();
       const user = cachedUsers.find(u => u.email === email);
       return { data: user || null, error: null };
@@ -949,18 +1197,23 @@ export const authAPI = {
 
   updateUser: async (userId, updates) => {
     try {
+      const user = browserAuth.getUser();
+      if (!user?.token) {
+        return { error: 'Authentication required' };
+      }
+
       const response = await fetch(`${API_URL}/users/${userId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+          'Authorization': `Bearer ${user.token}`
         },
         body: JSON.stringify(updates)
       });
 
       if (!response.ok) {
+        secureLog.warn('User update failed', { userId, status: response.status });
         // If API call fails, update locally
-        console.log('Updating user locally as backup');
         const cachedUsers = getCachedUsers();
         const userIndex = cachedUsers.findIndex(u => u.id === userId);
         if (userIndex !== -1) {
@@ -986,8 +1239,8 @@ export const authAPI = {
       
       return { data, error: null };
     } catch (error) {
-      console.error('Error updating user:', error);
-      return { data: null, error };
+      secureLog.error('User update error', { userId });
+      return { data: null, error: 'Failed to update user' };
     }
   },
 
@@ -1004,6 +1257,7 @@ export const authAPI = {
           const user = browserAuth.getUser();
           
           if (token && user) {
+            secureLog.info('Using backup session data');
             return { data: { user }, error: null };
           }
           return { data: null, error: 'No session found' };
@@ -1012,23 +1266,19 @@ export const authAPI = {
 
       return result;
     } catch (error) {
-      console.error(`Error in authAPI.get(${endpoint}):`, error);
+      secureLog.error(`Error in authAPI.get(${endpoint}):`, error);
       return { data: null, error: error.message };
     }
   },
 
   registerInvitation: async (userData) => {
     try {
-      console.log('Sending registration invitation with data:', {
-        email: userData.email,
-        role: userData.role,
-        company_id: userData.company_id || userData.sender_company_id
-      });
+      secureLog.info('Sending registration invitation');
       
       const user = browserAuth.getUser();
       
       if (!user || !user.token) {
-        console.error('No authentication token or user found');
+        secureLog.error('No authentication token or user found');
         return { data: null, error: 'Authentication required' };
       }
 
@@ -1037,27 +1287,22 @@ export const authAPI = {
         body: JSON.stringify({
           email: userData.email,
           role: userData.role,
-          company_id: userData.company_id || userData.sender_company_id, // Use current user's company if not specified
+          company_id: userData.company_id || userData.sender_company_id,
           sender_role: userData.role,
           sender_company_id: userData.company_id || userData.sender_company_id
         })
       });
 
       if (result.error) {
-        console.error('Registration invitation failed:', result.error);
+        secureLog.warn('Registration invitation failed:', result.error);
         return { data: null, error: result.error };
       }
 
-      console.log('Registration invitation sent successfully:', {
-        email: result.data.email,
-        role: result.data.role,
-        company_id: result.data.company_id
-      });
-      
+      secureLog.info('Registration invitation sent successfully', { userId: result.data.id });
       return result;
     } catch (error) {
-      console.error('Registration invitation error:', error);
-      return { data: null, error: 'Er is een fout opgetreden bij het versturen van de uitnodiging' };
+      secureLog.error('Error sending registration invitation:', error);
+      return { data: null, error: error.message };
     }
   },
 
@@ -1075,23 +1320,24 @@ export const authAPI = {
 
   updatePassword: async ({ currentPassword, newPassword }) => {
     try {
-      console.log('Attempting to update password at:', `${API_URL}/users/update-password`);
+      secureLog.info('Password update initiated');
       const user = browserAuth.getUser();
-      console.log('Auth token present:', !!user?.token);
       
+      if (!user?.token) {
+        return { error: 'Authentication required' };
+      }
+
       const response = await fetch(`${API_URL}/users/update-password`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${user?.token}`
+          'Authorization': `Bearer ${user.token}`
         },
         body: JSON.stringify({
           currentPassword,
           newPassword
         })
       });
-
-      console.log('Password update response status:', response.status);
 
       if (!response.ok) {
         if (response.status === 401) {
@@ -1103,15 +1349,15 @@ export const authAPI = {
         const errorData = await response.json().catch(() => ({ 
           message: 'Er is een onverwachte fout opgetreden' 
         }));
-        console.error('Password update error response:', errorData);
+        secureLog.error('Password update failed', { status: response.status });
         return { error: errorData.message || 'Failed to update password' };
       }
 
       const data = await response.json();
-      console.log('Password update successful:', data);
+      secureLog.info('Password updated successfully');
       return { data, error: null };
     } catch (error) {
-      console.error('Error updating password:', error);
+      secureLog.error('Password update error');
       return { error: 'Er is een onverwachte fout opgetreden' };
     }
   },
@@ -1123,18 +1369,16 @@ export const authAPI = {
         method: 'POST'
       });
 
-      console.log('2FA secret generation response:', result);
-
       if (result.error) {
         return { error: result.error };
       }
 
-      // Make sure we have both the secret and QR code
       if (!result.data?.secret || !result.data?.qrCode) {
-        console.error('Invalid 2FA secret response:', result);
+        secureLog.error('Invalid 2FA secret response');
         return { error: 'Incomplete response from server' };
       }
 
+      secureLog.info('2FA secret generated successfully');
       return {
         data: {
           secret: result.data.secret,
@@ -1143,7 +1387,7 @@ export const authAPI = {
         error: null
       };
     } catch (error) {
-      console.error('Error generating 2FA secret:', error);
+      secureLog.error('2FA secret generation error');
       return { error: error.message };
     }
   },
@@ -1156,13 +1400,15 @@ export const authAPI = {
       });
 
       if (result.error) {
+        secureLog.warn('2FA setup verification failed');
         return { error: result.error };
       }
 
+      secureLog.info('2FA setup verified successfully');
       return result;
     } catch (error) {
-      console.error('Error verifying 2FA setup:', error);
-      return { error: error.message };
+      secureLog.error('2FA setup verification error');
+      return { error: 'Failed to verify 2FA setup' };
     }
   },
 
@@ -1202,13 +1448,15 @@ export const authAPI = {
       });
 
       if (result.error) {
+        secureLog.warn('2FA disable failed');
         return { error: result.error };
       }
 
+      secureLog.info('2FA disabled successfully');
       return result;
     } catch (error) {
-      console.error('Error disabling 2FA:', error);
-      return { error: error.message };
+      secureLog.error('2FA disable error');
+      return { error: 'Failed to disable 2FA' };
     }
   },
 
@@ -1218,9 +1466,8 @@ export const authAPI = {
         method: 'GET'
       });
 
-      console.log('2FA status response:', result);
-
       if (result.error) {
+        secureLog.warn('2FA status check failed');
         return { error: result.error };
       }
 
@@ -1233,15 +1480,15 @@ export const authAPI = {
         error: null
       };
     } catch (error) {
-      console.error('Error getting 2FA status:', error);
-      return { error: error.message };
+      secureLog.error('2FA status check error');
+      return { error: 'Failed to check 2FA status' };
     }
   },
 
   verify2FALogin: async ({ token, tempToken }) => {
     try {
       if (!token || !tempToken) {
-        console.error('Missing required parameters for 2FA verification:', { token: !!token, tempToken: !!tempToken });
+        secureLog.error('Missing required parameters for 2FA verification');
         return { error: 'Missing required parameters' };
       }
 
@@ -1254,14 +1501,13 @@ export const authAPI = {
       });
 
       const data = await response.json();
-      console.log('2FA verification API response:', data);
+      secureLog.info('2FA verification completed', { success: response.ok });
 
       if (!response.ok) {
         return { error: data.error || 'Verification failed' };
       }
 
       if (data.token && data.user) {
-        // Store both tokens
         browserAuth.setAuth(data.token, data.refreshToken, data.user);
         return {
           data: {
@@ -1275,7 +1521,7 @@ export const authAPI = {
 
       return { data: null, error: 'Invalid response from server' };
     } catch (error) {
-      console.error('2FA verification error:', error);
+      secureLog.error('2FA verification error:', error);
       return { data: null, error: error.message };
     }
   },
@@ -1297,13 +1543,30 @@ export const authAPI = {
       
       return { data: { user }, error: null };
     } catch (error) {
-      console.error('Session check error:', error);
-      return { data: null, error: error.message };
+      secureLog.error('Session check error');
+      browserAuth.clearAuth();
+      return { data: null, error: 'Session validation failed' };
     }
   }
 };
 
 // Export a function to manually invalidate cache
-export const invalidateCaches = () => {
+const invalidateCaches = () => {
   Object.keys(cache).forEach(key => invalidateCache(key));
+};
+
+// Add an interval to actively check token expiration
+setInterval(() => {
+  const user = browserAuth.getUser();
+  if (user && user.token) {
+    isTokenExpired(user.token);
+  }
+}, 30000); // Check every 30 seconds
+
+module.exports = {
+  companyAPI,
+  playerAPI,
+  userAPI,
+  authAPI,
+  invalidateCaches
 };

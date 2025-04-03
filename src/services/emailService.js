@@ -1,5 +1,6 @@
-import Mailjet from 'node-mailjet';
-import dotenv from 'dotenv';
+const Mailjet = require('node-mailjet');
+const dotenv = require('dotenv');
+const { secureLog } = require('../utils/secureLogger');
 
 // Load environment variables
 dotenv.config();
@@ -11,13 +12,13 @@ const isBrowser = typeof window !== 'undefined';
 let mailjet;
 if (!isBrowser) {
   if (!process.env.MAILJET_API_KEY || !process.env.MAILJET_SECRET_KEY) {
-    console.error('Mailjet API credentials not found in environment variables');
+    secureLog.error('Mailjet API credentials not found in environment variables');
   } else {
     mailjet = new Mailjet({
       apiKey: process.env.MAILJET_API_KEY,
       apiSecret: process.env.MAILJET_SECRET_KEY
     });
-    console.log('Mailjet client initialized successfully');
+    secureLog.info('Mailjet client initialized successfully');
   }
 }
 
@@ -28,10 +29,10 @@ if (!isBrowser) {
  * @param {string} text - Plain text content
  * @param {string} html - HTML content (optional)
  */
-export const sendEmail = async (to, subject, text, html) => {
+const sendEmail = async (to, subject, text, html) => {
   // Don't try to send emails from browser environment
   if (isBrowser) {
-    console.log('Browser mock: Would send email with:', { to, subject, text });
+    secureLog.info('Browser mock: Would send email', { to });
     return { success: true };
   }
 
@@ -56,10 +57,10 @@ export const sendEmail = async (to, subject, text, html) => {
     });
 
     const result = await request;
-    console.log('Email sent successfully to:', to);
+    secureLog.info('Email sent successfully', { to });
     return { success: true, result };
   } catch (error) {
-    console.error('Failed to send email:', error);
+    secureLog.error('Failed to send email:', error);
     return { success: false, error };
   }
 };
@@ -69,10 +70,9 @@ export const sendEmail = async (to, subject, text, html) => {
  * @param {string} to - Recipient email 
  * @param {string} resetToken - Password reset token
  */
-export const sendPasswordResetEmail = async (to, resetToken) => {
+const sendPasswordResetEmail = async (to, resetToken) => {
   if (isBrowser) {
-    console.log('Browser mock: Would send password reset email to:', to);
-    console.log('Reset link would be:', `${window.location.origin}/reset-password?token=${resetToken}`);
+    secureLog.info('Browser mock: Would send password reset email', { to });
     return { success: true };
   }
 
@@ -175,10 +175,9 @@ Het Display Beheer Team
  * @param {string} role - User role
  * @param {string} companyName - Company name
  */
-export const sendRegistrationInvitationEmail = async (to, registrationToken, role, companyName) => {
+const sendRegistrationInvitationEmail = async (to, registrationToken, role, companyName) => {
   if (isBrowser) {
-    console.log('Browser mock: Would send registration invitation email to:', to);
-    console.log('Registration link would be:', `${window.location.origin}/complete-registration?token=${registrationToken}`);
+    secureLog.info('Browser mock: Would send registration invitation email', { to });
     return { success: true };
   }
 
@@ -316,4 +315,10 @@ Het Display Beheer Team
   `;
 
   return await sendEmail(to, subject, text, html);
+};
+
+module.exports = {
+  sendEmail,
+  sendPasswordResetEmail,
+  sendRegistrationInvitationEmail
 };

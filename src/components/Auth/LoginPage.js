@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useUser } from '../../contexts/UserContext';
 import ReCAPTCHA from 'react-google-recaptcha';
 import { browserAuth } from '../../utils/browserUtils';
+import { secureLog } from '../../utils/secureLogger';
 
 // Material UI imports
 import {
@@ -241,7 +242,7 @@ function LoginPage() {
 
       // Handle 2FA requirement
       if (data.requires2FA) {
-        console.log('2FA required, received tempToken:', data.tempToken);
+        secureLog.info('2FA required, proceeding with verification');
         setTempToken(data.tempToken);
         setShow2FADialog(true);
         setLoading(false);
@@ -249,9 +250,8 @@ function LoginPage() {
       }
 
       // Normal login success
-      console.log('User authenticated:', { 
+      secureLog.info('User authenticated', { 
         id: data.user.id,
-        email: data.user.email,
         role: data.user.role
       });
       
@@ -321,9 +321,8 @@ function LoginPage() {
       setShow2FADialog(false);
       
       // Save profile to context and navigate
-      console.log('2FA verification successful, setting profile:', {
+      secureLog.info('2FA verification successful', {
         id: data.user.id,
-        email: data.user.email,
         role: data.user.role
       });
       

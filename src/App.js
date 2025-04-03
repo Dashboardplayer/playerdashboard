@@ -87,9 +87,24 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
 
 // Main App component
 function AppContent() {
-  const { setProfile, logout } = useUser();
+  // Get user context - this needs to be at the component top level
+  const userContext = useUser();
+  
   const [loading, setLoading] = useState(true);
   const [notification, setNotification] = useState(null);
+
+  // Create default functions that will be used if context is null
+  const defaultSetProfile = (user) => {
+    console.warn('setProfile called before context was ready', user);
+  };
+  
+  const defaultLogout = () => {
+    console.warn('logout called before context was ready');
+  };
+
+  // Use null-safe destructuring for the context
+  const setProfile = userContext?.setProfile || defaultSetProfile;
+  const logout = userContext?.logout || defaultLogout;
 
   // Check for existing session on app load
   useEffect(() => {
@@ -99,8 +114,8 @@ function AppContent() {
         const { data: userData, error: userError } = await authAPI.getCurrentUser();
         
         console.log('Session check result:', { 
-          hasUser: !!userData?.user,
-          error: userError 
+          userData,
+          userError 
         });
   
         // If we have user data, set it as profile
@@ -110,14 +125,28 @@ function AppContent() {
             email: userData.user.email,
             role: userData.user.role
           });
-          setProfile(userData.user);
+          
+          // Only call setProfile if it's available
+          if (setProfile !== defaultSetProfile) {
+            setProfile(userData.user);
+          } else {
+            console.warn('Unable to set profile: context not ready');
+          }
         } else {
           console.log('No valid user data found');
-          setProfile(null);
+          if (setProfile !== defaultSetProfile) {
+            setProfile(null);
+          } else {
+            console.warn('Unable to clear profile: context not ready');
+          }
         }
       } catch (error) {
         console.error('Session check error:', error);
-        setProfile(null);
+        if (setProfile !== defaultSetProfile) {
+          setProfile(null);
+        } else {
+          console.warn('Unable to clear profile: context not ready');
+        }
       } finally {
         console.log('checkSession finished.');
         setLoading(false);
@@ -131,7 +160,15 @@ function AppContent() {
   useEffect(() => {
     const handleAuthExpired = (event) => {
       console.log('Authentication expired, logging out...');
-      logout();
+      
+      // Only call logout if it's available
+      if (logout !== defaultLogout) {
+        logout();
+      } else {
+        console.warn('Unable to logout: context not ready');
+        // Fallback logout - redirect to login
+        window.location.href = '/login';
+      }
       
       // Show notification with custom message if provided
       const message = event.detail?.message || 'Your session has expired. Please log in again.';
@@ -152,7 +189,7 @@ function AppContent() {
     return () => {
       window.removeEventListener('auth_expired', handleAuthExpired);
     };
-  }, [logout]);
+  }, [logout, defaultLogout]);
 
   if (loading) {
     return <div>Loading...</div>;

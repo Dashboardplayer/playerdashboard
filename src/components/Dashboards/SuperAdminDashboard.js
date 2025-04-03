@@ -40,6 +40,7 @@ import {
 import { Link } from 'react-router-dom';
 import PlayerManagement from '../Players/PlayerManagement';
 import { firebaseService } from '../../services/firebaseService';
+import { secureLog } from '../../utils/secureLogger';
 
 function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard, hideHeader }) {
   const [currentTab, setCurrentTab] = useState(0);
@@ -114,7 +115,7 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
       }
 
     } catch (err) {
-      console.error('Error fetching dashboard data:', err);
+      secureLog.error('Dashboard data fetch error', { error: err.message });
       setError(err.message || 'Er is een onverwachte fout opgetreden.');
     } finally {
       setLoading(false);
@@ -153,7 +154,7 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
             break;
         }
       } catch (error) {
-        console.error('Error handling WebSocket message:', error);
+        secureLog.error('WebSocket message handling error', { error: error.message });
       }
     };
 
@@ -179,13 +180,13 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
       const { data, error } = await companyAPI.getAll();
       
       if (error) {
-        console.error('Error fetching companies:', error);
+        secureLog.error('Error fetching companies:', error);
         setError('Fout bij het ophalen van bedrijven.');
         return;
       }
       
       if (data) {
-        console.log('Fetched companies:', data);
+        secureLog.info('Companies fetched successfully', { count: data.length });
         // Ensure we're setting the correct data structure
         const formattedData = data.map(company => ({
           company_id: company.id || company.company_id,
@@ -194,7 +195,7 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
         setCompanyOptions(formattedData);
       }
     } catch (err) {
-      console.error('Unexpected error:', err);
+      secureLog.error('Unexpected error:', err);
       setError('Er is een onverwachte fout opgetreden.');
     }
   };
@@ -206,16 +207,13 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
       localStorage.removeItem('cached_users');
       
       setLoading(true);
-      console.log('Fetching users...');
+      secureLog.info('Fetching users...');
       
       // Use userService instead of mongoClient directly
       const { data, error } = await userAPI.getAll();
       
-      console.log('Fetched users data:', data);
-      console.log('Fetch error:', error);
-      
       if (error) {
-        console.error('Error fetching users:', error);
+        secureLog.error('Error fetching users:', error);
         setError('Fout bij het ophalen van gebruikers.');
         return;
       }
@@ -229,7 +227,10 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
           filteredData = filteredData.filter(user => user.company_id === selectedCompanyFilter);
         }
         
-        console.log('Filtered users data:', filteredData);
+        secureLog.info('Users data fetched successfully', {
+          count: filteredData.length,
+          roles: filteredData.map(u => u.role)
+        });
         
         // Always update the state with new data
         setUsers(filteredData);
@@ -241,11 +242,11 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
         });
         setUserCompanies(userCompObj);
       } else {
-        console.warn('No users data received');
+        secureLog.warn('No users data received');
         setUsers([]);
       }
     } catch (err) {
-      console.error('Unexpected error fetching users:', err);
+      secureLog.error('Unexpected error fetching users:', err);
       setError('Er is een onverwachte fout opgetreden bij het ophalen van gebruikers.');
     } finally {
       setLoading(false);
@@ -255,7 +256,7 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
   // Force fetch users and companies when the component mounts or tab changes
   useEffect(() => {
     if (currentTab === 1) { // Users tab
-      console.log('Users tab active, fetching users and companies...');
+      secureLog.info('Users tab activated, fetching data');
       fetchUsers();
       fetchCompanyOptions(); // Ensure we fetch companies when switching to users tab
     }
@@ -275,7 +276,7 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
       });
       
       if (updateError) {
-        console.error('Error updating user company:', updateError);
+        secureLog.error('User company update error', { userId, error: updateError });
         setError(`Fout bij het updaten van het bedrijf: ${updateError.message}`);
         return;
       }
@@ -283,7 +284,7 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
       setSuccess('Gebruiker succesvol gekoppeld aan bedrijf!');
       fetchUsers();
     } catch (err) {
-      console.error('Unexpected error updating user company:', err);
+      secureLog.error('User company update error', { userId, error: err.message });
       setError('Er is een onverwachte fout opgetreden bij het updaten van de gebruiker.');
     }
   };
@@ -323,17 +324,17 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
   const handleDelete = async () => {
     try {
       if (!itemToDelete) {
-        console.log('No item to delete');
+        secureLog.warn('No item to delete');
         return;
       }
 
-      console.log('Starting deletion process for:', itemToDelete);
+      secureLog.info('Starting deletion process', { type: deleteType });
 
       if (deleteType === 'user') {
         // Don't allow deleting the last superadmin
         const superadmins = users.filter(u => u.role === 'superadmin');
         if (superadmins.length === 1 && itemToDelete.role === 'superadmin') {
-          console.log('Attempted to delete last superadmin');
+          secureLog.warn('Attempted to delete last superadmin');
           setError('Kan de laatste superadmin niet verwijderen.');
           handleCloseDeleteDialog();
           return;
@@ -341,30 +342,28 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
 
         // Ensure we have a valid user ID
         const userId = itemToDelete.id || itemToDelete._id;
-        console.log('Attempting to delete user with ID:', userId);
         
         if (!userId) {
-          console.log('No valid user ID found');
+          secureLog.error('No valid user ID found');
           setError('Geen geldig gebruikers-ID gevonden.');
           handleCloseDeleteDialog();
           return;
         }
 
-        console.log('Calling userAPI.delete with ID:', userId);
+        secureLog.info('Deleting user', { userId });
         const { error } = await userAPI.delete(userId);
         
         if (error) {
-          console.error('Error from userAPI.delete:', error);
+          secureLog.error('Error deleting user:', error);
           setError(`Fout bij het verwijderen van de gebruiker: ${error}`);
           handleCloseDeleteDialog();
           return;
         }
 
-        console.log('User deleted successfully, updating UI');
+        secureLog.info('User deleted successfully');
         // Remove user from local state
         setUsers(prevUsers => {
           const newUsers = prevUsers.filter(u => (u.id || u._id) !== userId);
-          console.log('Updated users list:', newUsers);
           return newUsers;
         });
         
@@ -372,13 +371,12 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
         handleCloseDeleteDialog();
         
         // Force a refresh of the data
-        console.log('Refreshing users list');
         await fetchUsers();
       } else if (deleteType === 'player') {
         const { error } = await playerAPI.delete(itemToDelete._id);
         
         if (error) {
-          console.error('Error deleting player:', error);
+          secureLog.error('Player deletion error', { error });
           setError('Fout bij het verwijderen van de player.');
           return;
         }
@@ -390,7 +388,7 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
         await fetchDashboardData();
       }
     } catch (err) {
-      console.error('Unexpected error:', err);
+      secureLog.error('Deletion process error', { type: deleteType, error: err.message });
       setError('Er is een onverwachte fout opgetreden.');
     }
   };
