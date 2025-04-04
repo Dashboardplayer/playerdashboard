@@ -7,13 +7,26 @@ export const browserAuth = {
     if (typeof window !== 'undefined') {
       // Store tokens
       localStorage.setItem('accessToken', accessToken);
-      localStorage.setItem('refreshToken', refreshToken);
       
-      // Store user data
-      const userData = {
-        ...user,
-        token: accessToken // Keep token in user object for backward compatibility
-      };
+      // Store refresh token if provided
+      if (refreshToken) {
+        localStorage.setItem('refreshToken', refreshToken);
+      }
+      
+      // If the second parameter is an object, it's the user (backward compatibility)
+      let userData;
+      if (typeof refreshToken === 'object' && !user) {
+        userData = {
+          ...refreshToken,
+          token: accessToken // Keep token in user object for backward compatibility
+        };
+      } else {
+        userData = {
+          ...user,
+          token: accessToken // Keep token in user object for backward compatibility
+        };
+      }
+      
       localStorage.setItem('user', JSON.stringify(userData));
     }
   },

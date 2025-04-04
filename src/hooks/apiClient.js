@@ -1160,9 +1160,33 @@ const authAPI = {
       const result = await response.json();
       
       if (result.token && result.user) {
-        browserAuth.setAuth(result.token, result.refreshToken, result.user);
+        // Close any existing WebSocket connection before setting auth
+        if (ws) {
+          try {
+            ws.close();
+            ws = null;
+          } catch (e) {
+            secureLog.error('Error closing WebSocket during login:', e);
+          }
+        }
+
+        // Clean up any existing sessions
+        if (activityCheckInterval) {
+          clearInterval(activityCheckInterval);
+          activityCheckInterval = null;
+        }
+        
+        // Small delay before setting auth to prevent race conditions
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Set authentication details
+        browserAuth.setAuth(result.token, result.refreshToken || null, result.user);
         secureLog.info('Login successful', { userId: result.user.id });
-        initializeSession(); // Start session monitoring
+        
+        // Initialize session with a delay to prevent UI freezing
+        setTimeout(() => {
+          initializeSession();
+        }, 1000);
       }
 
       return { data: result, error: null };
@@ -1211,8 +1235,33 @@ const authAPI = {
       const result = await response.json();
       
       if (result.token && result.user) {
-        browserAuth.setAuth(result.token, result.user);
+        // Close any existing WebSocket connection before setting auth
+        if (ws) {
+          try {
+            ws.close();
+            ws = null;
+          } catch (e) {
+            secureLog.error('Error closing WebSocket during auth update:', e);
+          }
+        }
+
+        // Clean up any existing sessions
+        if (activityCheckInterval) {
+          clearInterval(activityCheckInterval);
+          activityCheckInterval = null;
+        }
+        
+        // Small delay before setting auth to prevent race conditions
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Set authentication details
+        browserAuth.setAuth(result.token, result.refreshToken || null, result.user);
         secureLog.info('Registration completed successfully', { userId: result.user.id });
+        
+        // Initialize session with a delay to prevent UI freezing
+        setTimeout(() => {
+          initializeSession();
+        }, 1000);
       }
       
       return { data: result, error: null };
@@ -1228,11 +1277,26 @@ const authAPI = {
       activityCheckInterval = null;
     }
     cleanupActivityListeners();
-    browserAuth.clearAuth();
+    
+    // Close WebSocket connection first
     if (ws) {
-      ws.close();
+      try {
+        ws.close();
+      } catch (e) {
+        secureLog.error('Error closing WebSocket during logout:', e);
+      }
       ws = null;
     }
+    
+    // Clear any reconnection attempts
+    if (reconnectTimeout) {
+      clearTimeout(reconnectTimeout);
+      reconnectTimeout = null;
+    }
+    
+    // Then clear authentication
+    browserAuth.clearAuth();
+    
     secureLog.info('User logged out');
     return { error: null };
   },
