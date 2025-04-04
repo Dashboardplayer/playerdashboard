@@ -21,6 +21,7 @@ import { validatePassword } from '../../utils/passwordValidation';
 import PasswordRequirements, { getPasswordErrors } from './PasswordRequirements';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
+const REGISTRATION_TOKEN_KEY = 'registration_token';
 
 function SignUp() {
   const [searchParams] = useSearchParams();
@@ -35,22 +36,32 @@ function SignUp() {
   const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
+    // First check URL for token
     const tokenFromUrl = searchParams.get('token');
     console.log('🔍 Token from URL:', tokenFromUrl);
     
-    if (!tokenFromUrl) {
-      console.log('❌ No token found in URL');
-      setError('Geen registratietoken gevonden. Gebruik de link uit je uitnodigingsmail.');
-      setLoading(false);
-    } else {
-      console.log('✅ Found token in URL, fetching user info...');
+    // Then check localStorage as fallback
+    const savedToken = localStorage.getItem(REGISTRATION_TOKEN_KEY);
+    
+    if (tokenFromUrl) {
+      console.log('✅ Found token in URL, saving and fetching user info...');
+      // Save token to localStorage before removing from URL
+      localStorage.setItem(REGISTRATION_TOKEN_KEY, tokenFromUrl);
       setToken(tokenFromUrl);
       fetchUserInfo(tokenFromUrl);
       
-      // Remove token from URL after fetching user info
+      // Remove token from URL after storing it
       const newSearchParams = new URLSearchParams(searchParams);
       newSearchParams.delete('token');
       navigate({ search: newSearchParams.toString() }, { replace: true });
+    } else if (savedToken) {
+      console.log('✅ Found token in localStorage, fetching user info...');
+      setToken(savedToken);
+      fetchUserInfo(savedToken);
+    } else {
+      console.log('❌ No token found in URL or localStorage');
+      setError('Geen registratietoken gevonden. Gebruik de link uit je uitnodigingsmail.');
+      setLoading(false);
     }
   }, [searchParams, navigate]);
 
@@ -70,6 +81,7 @@ function SignUp() {
       if (data.error) {
         console.error('❌ Server returned error:', data.error);
         setError('Ongeldige of verlopen registratielink. Vraag een nieuwe aan.');
+        localStorage.removeItem(REGISTRATION_TOKEN_KEY);
         return;
       }
 
@@ -91,6 +103,7 @@ function SignUp() {
         error: err
       });
       setError('Er is een fout opgetreden bij het ophalen van je gegevens.');
+      localStorage.removeItem(REGISTRATION_TOKEN_KEY);
     } finally {
       setLoading(false);
     }
@@ -100,7 +113,10 @@ function SignUp() {
     e.preventDefault();
     setError('');
 
-    if (!token) {
+    // Get token from state or localStorage
+    const registrationToken = token || localStorage.getItem(REGISTRATION_TOKEN_KEY);
+
+    if (!registrationToken) {
       setError('Geen registratietoken gevonden. Gebruik de link uit je uitnodigingsmail.');
       return;
     }
@@ -115,7 +131,7 @@ function SignUp() {
 
     try {
       const { data, error: signUpError } = await authAPI.completeRegistration({
-        token,
+        token: registrationToken,
         email,
         password
       });
@@ -130,6 +146,9 @@ function SignUp() {
         return;
       }
 
+      // Clear registration token after successful registration
+      localStorage.removeItem(REGISTRATION_TOKEN_KEY);
+      
       // Registration successful, redirect to login
       navigate('/login');
     } catch (err) {
@@ -150,7 +169,10 @@ function SignUp() {
     );
   }
 
-  if (!token) {
+  // Check both state and localStorage for token
+  const hasToken = token || localStorage.getItem(REGISTRATION_TOKEN_KEY);
+  
+  if (!hasToken) {
     return (
       <Container maxWidth="sm" sx={{ mt: 8 }}>
         <Alert severity="error">

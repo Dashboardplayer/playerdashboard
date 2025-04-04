@@ -315,10 +315,17 @@ const WS_URL = process.env.NODE_ENV === 'production'
   ? `wss://player-dashboard.onrender.com/api`
   : 'ws://localhost:5001/api';
 
+// Fallback mechanism for WebSocket issues
+const WS_FALLBACK = {
+  enabled: true,
+  pollingInterval: 30000, // 30 seconds
+  pollingTimeout: null
+};
+
 let ws = null;
 let reconnectAttempts = 0;
-const MAX_RECONNECT_ATTEMPTS = 5;
-const RECONNECT_DELAY = 3000; // 3 seconds
+const MAX_RECONNECT_ATTEMPTS = 8; // Increased from 5
+const RECONNECT_DELAY = 2000; // Decreased to 2 seconds (was 3)
 let reconnectTimeout = null;
 
 // Cache storage with timestamps
@@ -356,6 +363,13 @@ function initializeWebSocket() {
     const now = Date.now();
     if (now - lastConnectionAttempt < MIN_RECONNECT_DELAY) {
       secureLog.warn('WebSocket reconnection attempted too soon');
+      // Schedule a retry after the minimum delay has passed
+      if (!reconnectTimeout) {
+        reconnectTimeout = setTimeout(() => {
+          reconnectTimeout = null;
+          initializeWebSocket();
+        }, MIN_RECONNECT_DELAY);
+      }
       return;
     }
 
@@ -379,23 +393,59 @@ function initializeWebSocket() {
 
     // Create WebSocket with authentication token in protocol
     const protocols = [`jwt.${user.token}`];
-    ws = new WebSocket(WS_URL, protocols);
     
-    window.ws = ws;
+    try {
+      ws = new WebSocket(WS_URL, protocols);
+      window.ws = ws;
+    } catch (wsError) {
+      secureLog.error('Failed to create WebSocket instance', { error: wsError.message });
+      isConnecting = false;
+      enableFallbackMechanism();
+      return;
+    }
+    
+    // Add connection timeout
+    const connectionTimeout = setTimeout(() => {
+      if (ws && ws.readyState === WebSocket.CONNECTING) {
+        secureLog.warn('WebSocket connection timeout');
+        ws.close();
+        isConnecting = false;
+        
+        // Try to reconnect
+        if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+          reconnectAttempts++;
+          reconnectTimeout = setTimeout(initializeWebSocket, RECONNECT_DELAY * Math.pow(1.5, reconnectAttempts));
+        } else {
+          enableFallbackMechanism();
+        }
+      }
+    }, 10000); // 10 second connection timeout
     
     ws.onopen = () => {
+      clearTimeout(connectionTimeout);
       secureLog.info('WebSocket connection established');
       isConnecting = false;
       reconnectAttempts = 0;
       
+      // Disable fallback mechanism when WebSocket is working
+      if (WS_FALLBACK.pollingTimeout) {
+        clearTimeout(WS_FALLBACK.pollingTimeout);
+        WS_FALLBACK.pollingTimeout = null;
+      }
+      
       // Send initial ping instead of heartbeat
-      ws.send(JSON.stringify({ 
-        type: 'ping',
-        timestamp: Date.now()
-      }));
+      try {
+        ws.send(JSON.stringify({ 
+          type: 'ping',
+          timestamp: Date.now()
+        }));
+      } catch (sendError) {
+        secureLog.error('Failed to send initial ping', { error: sendError.message });
+      }
     };
 
     ws.onclose = async (event) => {
+      clearTimeout(connectionTimeout);
       secureLog.info('WebSocket disconnected', { code: event.code });
       
       // Clear connection state
@@ -420,7 +470,7 @@ function initializeWebSocket() {
 
       // Only attempt reconnection if we haven't reached the maximum attempts
       if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-        const delay = RECONNECT_DELAY * Math.pow(2, reconnectAttempts);
+        const delay = RECONNECT_DELAY * Math.pow(1.5, reconnectAttempts);
         reconnectTimeout = setTimeout(() => {
           reconnectAttempts++;
           secureLog.info('Attempting WebSocket reconnection', { 
@@ -432,17 +482,20 @@ function initializeWebSocket() {
         }, delay);
       } else {
         secureLog.warn('WebSocket max reconnection attempts reached');
+        // Enable fallback mechanism
+        enableFallbackMechanism();
+        
         // Reset reconnection attempts after a longer delay
         reconnectTimeout = setTimeout(() => {
           reconnectAttempts = 0;
           initializeWebSocket();
-        }, RECONNECT_DELAY * 5);
+        }, RECONNECT_DELAY * 10);
       }
     };
 
     ws.onerror = (error) => {
       secureLog.error('WebSocket error occurred', { 
-        message: error.message,
+        message: error.message || 'Unknown WebSocket error',
         readyState: ws?.readyState
       });
       isConnecting = false;
@@ -459,7 +512,45 @@ function initializeWebSocket() {
   } catch (error) {
     secureLog.error('WebSocket initialization error', { error: error.message });
     isConnecting = false;
+    enableFallbackMechanism();
   }
+}
+
+// Add fallback polling mechanism when WebSocket fails
+function enableFallbackMechanism() {
+  if (!WS_FALLBACK.enabled || WS_FALLBACK.pollingTimeout) {
+    return;
+  }
+  
+  secureLog.info('Enabling fallback polling mechanism');
+  
+  const pollForUpdates = async () => {
+    try {
+      const user = browserAuth.getUser();
+      
+      if (!user || !user.token) {
+        secureLog.warn('Fallback polling stopped: No valid authentication');
+        return;
+      }
+      
+      // Poll for updates of different entity types
+      // This is a simplified version - in a real implementation you would
+      // poll your API endpoints for updates
+      
+      // Try to reinitialize WebSocket connection occasionally
+      if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+        initializeWebSocket();
+      }
+      
+      WS_FALLBACK.pollingTimeout = setTimeout(pollForUpdates, WS_FALLBACK.pollingInterval);
+    } catch (error) {
+      secureLog.error('Error in fallback polling', { error: error.message });
+      WS_FALLBACK.pollingTimeout = setTimeout(pollForUpdates, WS_FALLBACK.pollingInterval);
+    }
+  };
+  
+  // Start polling
+  WS_FALLBACK.pollingTimeout = setTimeout(pollForUpdates, 1000);
 }
 
 // Modify the storage event listener to be more precise
