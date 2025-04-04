@@ -1160,33 +1160,73 @@ const authAPI = {
       const result = await response.json();
       
       if (result.token && result.user) {
-        // Close any existing WebSocket connection before setting auth
-        if (ws) {
-          try {
-            ws.close();
+        try {
+          // First clear any existing connections
+          // Close WebSocket connection first
+          if (ws) {
+            try {
+              ws.close();
+            } catch (e) {
+              secureLog.error('Error closing WebSocket during login:', e);
+            }
             ws = null;
-          } catch (e) {
-            secureLog.error('Error closing WebSocket during login:', e);
           }
+          
+          // Clear any reconnection attempts
+          if (reconnectTimeout) {
+            clearTimeout(reconnectTimeout);
+            reconnectTimeout = null;
+          }
+          
+          // Clear any existing sessions
+          if (activityCheckInterval) {
+            clearInterval(activityCheckInterval);
+            activityCheckInterval = null;
+          }
+          
+          cleanupActivityListeners();
+          
+          // Clear the connection attempts counter
+          reconnectAttempts = 0;
+          
+          // Set authentication details immediately with proper error handling
+          try {
+            // Set authentication details
+            browserAuth.setAuth(result.token, result.refreshToken || null, result.user);
+            secureLog.info('Login successful', { userId: result.user.id });
+            
+            // Pre-cache essential user data for offline access
+            // This makes dashboard loading more reliable
+            localStorage.setItem('company_id', result.user.company_id || '');
+            localStorage.setItem('user_role', result.user.role || '');
+          } catch (authError) {
+            secureLog.error('Error setting authentication:', authError);
+          }
+          
+          // Initialize session in the background with a delay to prevent UI freezing
+          setTimeout(() => {
+            try {
+              // Initialize token monitoring
+              initializeSession();
+              
+              // Start WebSocket with sufficient delay
+              setTimeout(() => {
+                try {
+                  initializeWebSocket();
+                } catch (wsError) {
+                  secureLog.error('Error initializing WebSocket on login:', wsError);
+                  // Continue anyway - WebSocket isn't critical for core functionality
+                }
+              }, 1500);
+            } catch (sessionError) {
+              secureLog.error('Error initializing session:', sessionError);
+              // Don't fail the login process for session initialization errors
+            }
+          }, 500);
+        } catch (setupError) {
+          secureLog.error('Error in post-login setup:', setupError);
+          // We still want to complete login even if there's an error in the setup
         }
-
-        // Clean up any existing sessions
-        if (activityCheckInterval) {
-          clearInterval(activityCheckInterval);
-          activityCheckInterval = null;
-        }
-        
-        // Small delay before setting auth to prevent race conditions
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        // Set authentication details
-        browserAuth.setAuth(result.token, result.refreshToken || null, result.user);
-        secureLog.info('Login successful', { userId: result.user.id });
-        
-        // Initialize session with a delay to prevent UI freezing
-        setTimeout(() => {
-          initializeSession();
-        }, 1000);
       }
 
       return { data: result, error: null };
@@ -1235,33 +1275,73 @@ const authAPI = {
       const result = await response.json();
       
       if (result.token && result.user) {
-        // Close any existing WebSocket connection before setting auth
-        if (ws) {
-          try {
-            ws.close();
+        try {
+          // First clear any existing connections
+          // Close WebSocket connection first
+          if (ws) {
+            try {
+              ws.close();
+            } catch (e) {
+              secureLog.error('Error closing WebSocket during registration completion:', e);
+            }
             ws = null;
-          } catch (e) {
-            secureLog.error('Error closing WebSocket during auth update:', e);
           }
+          
+          // Clear any reconnection attempts
+          if (reconnectTimeout) {
+            clearTimeout(reconnectTimeout);
+            reconnectTimeout = null;
+          }
+          
+          // Clean up any existing sessions
+          if (activityCheckInterval) {
+            clearInterval(activityCheckInterval);
+            activityCheckInterval = null;
+          }
+          
+          cleanupActivityListeners();
+          
+          // Clear the connection attempts counter
+          reconnectAttempts = 0;
+          
+          // Set authentication details immediately with proper error handling
+          try {
+            // Set authentication details
+            browserAuth.setAuth(result.token, result.refreshToken || null, result.user);
+            secureLog.info('Registration completed successfully', { userId: result.user.id });
+            
+            // Pre-cache essential user data for offline access
+            // This makes dashboard loading more reliable
+            localStorage.setItem('company_id', result.user.company_id || '');
+            localStorage.setItem('user_role', result.user.role || '');
+          } catch (authError) {
+            secureLog.error('Error setting authentication:', authError);
+          }
+          
+          // Initialize session in the background with a delay to prevent UI freezing
+          setTimeout(() => {
+            try {
+              // Initialize token monitoring
+              initializeSession();
+              
+              // Start WebSocket with sufficient delay
+              setTimeout(() => {
+                try {
+                  initializeWebSocket();
+                } catch (wsError) {
+                  secureLog.error('Error initializing WebSocket after registration:', wsError);
+                  // Continue anyway - WebSocket isn't critical for core functionality
+                }
+              }, 1500);
+            } catch (sessionError) {
+              secureLog.error('Error initializing session:', sessionError);
+              // Don't fail the registration process for session initialization errors
+            }
+          }, 500);
+        } catch (setupError) {
+          secureLog.error('Error in post-registration setup:', setupError);
+          // We still want to complete registration even if there's an error in the setup
         }
-
-        // Clean up any existing sessions
-        if (activityCheckInterval) {
-          clearInterval(activityCheckInterval);
-          activityCheckInterval = null;
-        }
-        
-        // Small delay before setting auth to prevent race conditions
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        // Set authentication details
-        browserAuth.setAuth(result.token, result.refreshToken || null, result.user);
-        secureLog.info('Registration completed successfully', { userId: result.user.id });
-        
-        // Initialize session with a delay to prevent UI freezing
-        setTimeout(() => {
-          initializeSession();
-        }, 1000);
       }
       
       return { data: result, error: null };

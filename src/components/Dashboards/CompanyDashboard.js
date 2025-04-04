@@ -28,71 +28,134 @@ function CompanyDashboard() {
   const { profile: user, loading: userLoading, error: userError } = useUser();
   const [companyName, setCompanyName] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [companyStats, setCompanyStats] = useState({
     totalPlayers: 0,
     activePlayers: 0,
     totalUsers: 0
   });
   const [error, setError] = useState('');
+  const [loadRetries, setLoadRetries] = useState(0);
+  const maxRetries = 3;
+
+  // Attempt to get company_id from localStorage as fallback
+  const getCompanyId = useCallback(() => {
+    if (user?.company_id) return user.company_id;
+    
+    // Fallback to localStorage if user context isn't ready yet
+    const fallbackCompanyId = localStorage.getItem('company_id');
+    if (fallbackCompanyId) return fallbackCompanyId;
+    
+    return null;
+  }, [user]);
 
   const fetchCompanyData = useCallback(async () => {
-    if (!user?.company_id) return;
+    const companyId = getCompanyId();
+    if (!companyId) {
+      if (loadRetries < maxRetries) {
+        // Retry after a delay if company_id is not available yet
+        setTimeout(() => {
+          setLoadRetries(prev => prev + 1);
+        }, 500);
+        return;
+      } else {
+        setError('Could not determine company ID. Please try logging in again.');
+        setLoading(false);
+        return;
+      }
+    }
 
     try {
+      setLoading(true);
       setError(''); // Clear any existing errors
 
+      // First try to get company name from localStorage cache
+      const cachedCompanyName = localStorage.getItem('company_name');
+      if (cachedCompanyName) {
+        setCompanyName(cachedCompanyName);
+      }
+
       // Fetch company name
-      const { data: companies, error: companyError } = await companyAPI.getAll();
-      
-      if (companyError) {
-        console.error('Error fetching company:', companyError);
-        throw new Error('Failed to fetch company information');
+      try {
+        const { data: companies, error: companyError } = await companyAPI.getAll();
+        
+        if (companyError) {
+          console.error('Error fetching company:', companyError);
+          // Don't throw here, try to continue with other data
+        } else if (companies) {
+          const company = companies.find(c => c.company_id === companyId || c._id === companyId);
+          if (company?.company_name) {
+            setCompanyName(company.company_name);
+            // Cache for future use
+            localStorage.setItem('company_name', company.company_name);
+          }
+        }
+      } catch (companyError) {
+        console.error('Exception fetching company:', companyError);
+        // Continue with other data
       }
 
-      if (companies) {
-        const company = companies.find(c => c.company_id === user.company_id);
-        setCompanyName(company?.company_name || 'Unknown Company');
-      }
-
-      // Fetch players for this company
-      const { data: players, error: playersError } = await playerAPI.getAll(user.company_id);
+      // Parallel fetch for better performance
+      const playersPromise = playerAPI.getAll(companyId);
+      const usersPromise = userAPI.getAll(companyId);
       
-      if (playersError) {
-        console.error('Error fetching players:', playersError);
-        throw new Error('Failed to fetch players data');
-      }
-
-      // Fetch users for this company
-      const { data: users, error: usersError } = await userAPI.getAll(user.company_id);
+      const [playersResult, usersResult] = await Promise.all([
+        playersPromise.catch(err => ({ error: err.message })),
+        usersPromise.catch(err => ({ error: err.message }))
+      ]);
       
-      if (usersError) {
-        console.error('Error fetching users:', usersError);
-        throw new Error('Failed to fetch users data');
+      // Process players data
+      if (playersResult.error) {
+        console.error('Error fetching players:', playersResult.error);
+      } else {
+        const players = playersResult.data || [];
+        const activePlayers = players.filter(player => player.is_online) || [];
+        
+        setCompanyStats(prev => ({
+          ...prev,
+          totalPlayers: players.length,
+          activePlayers: activePlayers.length
+        }));
       }
-
-      // Calculate statistics
-      const activePlayers = players?.filter(player => player.is_online) || [];
       
-      setCompanyStats({
-        totalPlayers: players?.length || 0,
-        activePlayers: activePlayers.length,
-        totalUsers: users?.length || 0
-      });
+      // Process users data
+      if (usersResult.error) {
+        console.error('Error fetching users:', usersResult.error);
+      } else {
+        const users = usersResult.data || [];
+        
+        setCompanyStats(prev => ({
+          ...prev,
+          totalUsers: users.length
+        }));
+      }
 
     } catch (err) {
       console.error('Error in fetchCompanyData:', err);
       setError(err.message || 'Failed to load company data');
-      // Set default values in case of error
-      setCompanyStats({
-        totalPlayers: 0,
-        activePlayers: 0,
-        totalUsers: 0
-      });
+    } finally {
+      setLoading(false);
     }
-  }, [user]);
+  }, [getCompanyId, loadRetries, maxRetries]);
 
   useEffect(() => {
+    // Try to load immediately
     fetchCompanyData();
+    
+    // Set up event listeners for real-time updates
+    const handleEntityUpdate = () => {
+      fetchCompanyData();
+    };
+    
+    window.addEventListener('company_update', handleEntityUpdate);
+    window.addEventListener('player_update', handleEntityUpdate);
+    window.addEventListener('user_update', handleEntityUpdate);
+    
+    return () => {
+      window.removeEventListener('company_update', handleEntityUpdate);
+      window.removeEventListener('player_update', handleEntityUpdate);
+      window.removeEventListener('user_update', handleEntityUpdate);
+    };
   }, [fetchCompanyData]);
 
   const handleRefresh = async () => {
@@ -101,24 +164,50 @@ function CompanyDashboard() {
     setTimeout(() => setIsRefreshing(false), 500);
   };
 
-  if (userLoading) {
+  // Show loading state when user context is loading
+  if (userLoading || loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-        <CircularProgress />
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}>
+        <Stack spacing={2} alignItems="center">
+          <CircularProgress />
+          <Typography variant="body2" color="text.secondary">
+            Loading dashboard...
+          </Typography>
+        </Stack>
       </Box>
     );
   }
 
-  if (userError || !user) {
+  if (userError || error) {
     return (
       <Box sx={{ p: 3 }}>
-        <Alert severity="error">
-          {userError || 'Please log in to access the dashboard'}
+        <Alert 
+          severity="error" 
+          action={
+            <Button color="inherit" size="small" onClick={handleRefresh}>
+              Retry
+            </Button>
+          }
+        >
+          {userError || error || 'An error occurred while loading the dashboard'}
         </Alert>
       </Box>
     );
   }
 
+  if (!user && !localStorage.getItem('user')) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Alert severity="warning">
+          Please log in to access the dashboard
+        </Alert>
+      </Box>
+    );
+  }
+
+  // Use user from context, or try to get from localStorage as fallback
+  const currentUser = user || JSON.parse(localStorage.getItem('user') || '{}');
+  
   const getRoleColor = (role) => {
     switch (role) {
       case 'superadmin':
@@ -130,11 +219,12 @@ function CompanyDashboard() {
     }
   };
 
-  const roleColors = getRoleColor(user.role);
+  const roleColors = getRoleColor(currentUser.role || localStorage.getItem('user_role') || 'user');
 
   // Filter function to only show company's own data
   const filterByCompany = (data) => {
-    return data.filter(item => item.company_id === user.company_id);
+    const companyId = getCompanyId();
+    return data.filter(item => item.company_id === companyId);
   };
 
   return (
@@ -158,19 +248,19 @@ function CompanyDashboard() {
         }}>
           <Box>
             <Typography variant="h5" gutterBottom sx={{ color: 'primary.main' }}>
-              Welcome to {companyName}
+              Welcome to {companyName || 'Your Dashboard'}
             </Typography>
             <Stack direction="row" spacing={3} alignItems="center">
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <Person sx={{ color: 'text.secondary', fontSize: 20 }} />
                 <Typography variant="body2" color="text.secondary">
-                  {user.email}
+                  {currentUser.email || 'User'}
                 </Typography>
               </Box>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <VpnKey sx={{ color: 'text.secondary', fontSize: 20 }} />
                 <Chip
-                  label={user.role}
+                  label={currentUser.role || localStorage.getItem('user_role') || 'User'}
                   size="small"
                   sx={{
                     bgcolor: roleColors.bg,
@@ -199,8 +289,12 @@ function CompanyDashboard() {
                 sx={{
                   animation: isRefreshing ? 'spin 1s linear infinite' : 'none',
                   '@keyframes spin': {
-                    '0%': { transform: 'rotate(0deg)' },
-                    '100%': { transform: 'rotate(360deg)' }
+                    '0%': {
+                      transform: 'rotate(0deg)'
+                    },
+                    '100%': {
+                      transform: 'rotate(360deg)'
+                    }
                   }
                 }}
               >
@@ -223,7 +317,7 @@ function CompanyDashboard() {
           >
             New Player
           </Button>
-          {user.role === 'bedrijfsadmin' && (
+          {currentUser.role === 'bedrijfsadmin' && (
             <Button
               variant="contained"
               component={Link}
@@ -322,7 +416,7 @@ function CompanyDashboard() {
       {/* Main Dashboard Content */}
       <SuperAdminDashboard 
         filterData={filterByCompany}
-        hideDeleteButtons={user.role !== 'bedrijfsadmin'}
+        hideDeleteButtons={currentUser.role !== 'bedrijfsadmin'}
         isCompanyDashboard={true}
         hideHeader={true}
       />
