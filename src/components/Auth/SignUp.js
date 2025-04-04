@@ -46,8 +46,13 @@ function SignUp() {
       console.log('✅ Found token in URL, fetching user info...');
       setToken(tokenFromUrl);
       fetchUserInfo(tokenFromUrl);
+      
+      // Remove token from URL after fetching user info
+      const newSearchParams = new URLSearchParams(searchParams);
+      newSearchParams.delete('token');
+      navigate({ search: newSearchParams.toString() }, { replace: true });
     }
-  }, [searchParams]);
+  }, [searchParams, navigate]);
 
   const fetchUserInfo = async (token) => {
     try {

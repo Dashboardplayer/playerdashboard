@@ -63,12 +63,31 @@ const updateLastActivity = () => {
   lastActivityTimestamp = Date.now();
 };
 
-// Add event listeners for user activity
+// Update setupActivityListeners to be more comprehensive
 const setupActivityListeners = () => {
-  const events = ['mousedown', 'keydown', 'mousemove', 'wheel', 'touchstart', 'scroll'];
+  const events = [
+    'mousedown', 
+    'keydown', 
+    'mousemove', 
+    'wheel', 
+    'touchstart', 
+    'scroll', 
+    'click',
+    'input',
+    'change'
+  ];
+  
+  const updateActivity = () => {
+    lastActivityTimestamp = Date.now();
+    // Reset any pending token expiration checks
+    if (activityCheckInterval) {
+      clearInterval(activityCheckInterval);
+      startTokenExpirationChecker();
+    }
+  };
   
   events.forEach(event => {
-    window.addEventListener(event, updateLastActivity, { passive: true });
+    window.addEventListener(event, updateActivity, { passive: true });
   });
 };
 
@@ -127,7 +146,7 @@ const handleTokenExpiration = async (reason = 'expired') => {
   }
 };
 
-// Update isTokenExpired to be more strict
+// Update isTokenExpired to consider user activity
 const isTokenExpired = (token) => {
   if (!token) return true;
   
@@ -142,9 +161,17 @@ const isTokenExpired = (token) => {
     const currentTime = Date.now();
     const timeUntilExpiry = expirationTime - currentTime;
 
-    // If token is expired or about to expire in the next minute
+    // Check if user has been active recently
+    const inactiveTime = currentTime - lastActivityTimestamp;
+    
+    // If user has been active within the inactivity timeout, don't expire the token
+    if (inactiveTime < INACTIVITY_TIMEOUT) {
+      return false;
+    }
+
+    // If token is expired or about to expire in the next minute AND user is inactive
     if (timeUntilExpiry <= 60000) { // 1 minute buffer
-      handleTokenExpiration('expired');
+      handleTokenExpiration('inactivity');
       return true;
     }
 
@@ -156,16 +183,48 @@ const isTokenExpired = (token) => {
   }
 };
 
-// Update fetchWithAuth to handle token expiration
+// Update fetchWithAuth to handle token expiration and refresh
 const fetchWithAuth = async (endpoint, options = {}) => {
   const user = browserAuth.getUser();
   
-  if (!user || !user.token || isTokenExpired(user.token)) {
+  if (!user || !user.token) {
     handleTokenExpiration('expired');
     return { error: 'Authentication required', useBackup: true };
   }
 
   try {
+    // Check if token is about to expire and try to refresh it first
+    if (isTokenExpired(user.token)) {
+      const refreshToken = localStorage.getItem('refreshToken');
+      if (refreshToken) {
+        try {
+          const response = await fetch(`${API_URL}/auth/refresh-token`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ refreshToken })
+          });
+
+          const refreshData = await response.json();
+          if (refreshData.token && refreshData.user) {
+            // Update the stored tokens
+            browserAuth.setAuth(refreshData.token, refreshToken, refreshData.user);
+            user.token = refreshData.token; // Update token for current request
+          } else {
+            handleTokenExpiration('refresh_failed');
+            return { error: 'Session expired', useBackup: true };
+          }
+        } catch (refreshError) {
+          handleTokenExpiration('refresh_failed');
+          return { error: 'Session expired', useBackup: true };
+        }
+      } else {
+        handleTokenExpiration('no_refresh_token');
+        return { error: 'Session expired', useBackup: true };
+      }
+    }
+
     const response = await fetch(`${API_URL}${endpoint}`, {
       ...options,
       headers: {
@@ -208,9 +267,9 @@ const clearAllCache = () => {
   localStorage.removeItem('mock_user');
 };
 
-// Start token expiration checker
+// Update startTokenExpirationChecker to be more precise
 const startTokenExpirationChecker = () => {
-  // Set up activity monitoring
+  // Set up activity monitoring if not already set
   setupActivityListeners();
   updateLastActivity(); // Initialize last activity
   
@@ -218,17 +277,14 @@ const startTokenExpirationChecker = () => {
     const user = browserAuth.getUser();
     if (!user?.token) return;
     
-    const inactiveTime = Date.now() - lastActivityTimestamp;
+    const currentTime = Date.now();
+    const inactiveTime = currentTime - lastActivityTimestamp;
     
-    // Check for inactivity timeout
+    // Only check for expiration if user has been inactive
     if (inactiveTime >= INACTIVITY_TIMEOUT) {
-      handleTokenExpiration('inactivity');
-      return;
-    }
-    
-    // Check actual token expiration
-    if (isTokenExpired(user.token)) {
-      handleTokenExpiration('expired');
+      if (isTokenExpired(user.token)) {
+        handleTokenExpiration('inactivity');
+      }
     }
   };
   
@@ -236,9 +292,6 @@ const startTokenExpirationChecker = () => {
   if (activityCheckInterval) {
     clearInterval(activityCheckInterval);
   }
-  
-  // Check immediately
-  checkToken();
   
   // Set up new interval
   activityCheckInterval = setInterval(checkToken, TOKEN_CHECK_INTERVAL);
@@ -335,9 +388,9 @@ function initializeWebSocket() {
       isConnecting = false;
       reconnectAttempts = 0;
       
-      // Send initial heartbeat
+      // Send initial ping instead of heartbeat
       ws.send(JSON.stringify({ 
-        type: 'heartbeat',
+        type: 'ping',
         timestamp: Date.now()
       }));
     };

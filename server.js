@@ -1,3 +1,5 @@
+// Import http directly
+const http = require('http');
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -6,7 +8,6 @@ const dotenv = require('dotenv');
 const jwt = require('jsonwebtoken');
 const Mailjet = require('node-mailjet');
 const crypto = require('crypto');
-const { createServer } = require('http');
 const { WebSocket, WebSocketServer } = require('ws');
 const helmet = require('helmet');
 const User = require('./src/models/User');
@@ -31,6 +32,15 @@ const { auth, authorize } = require('./src/middleware/auth');
 const path = require('path');
 const playerRoutes = require('./src/routes/player');
 const { secureLog } = require('./src/utils/secureLogger');
+const { signRequest, verifySignature, signatureMiddleware } = require('./src/services/requestSigningService');
+const { versionMiddleware } = require('./src/middleware/versionMiddleware');
+const { 
+  generateAccessToken, 
+  generateRefreshToken, 
+  refreshAccessToken, 
+  revokeRefreshToken,
+  revokeAllUserRefreshTokens
+} = require('./src/services/refreshTokenService');
 
 // Load environment variables
 dotenv.config();
@@ -148,6 +158,9 @@ app.use(cors(corsOptions));
 // Handle preflight requests for all routes
 app.options('*', cors(corsOptions));
 
+// Apply API versioning middleware
+app.use(versionMiddleware);
+
 // Security Headers Configuration
 if (process.env.NODE_ENV === 'production') {
   app.use(helmet({
@@ -180,7 +193,7 @@ app.use(bodyParser.json({ limit: '10mb' }));
 
 // Add request logging middleware
 app.use((req, res, next) => {
-  secureLog.info(`${req.method} ${req.path}`);
+  secureLog.info(`${req.method} ${req.path} (API Version: ${req.apiVersion})`);
   next();
 });
 
@@ -210,23 +223,102 @@ app.use((req, res, next) => {
   next();
 });
 
-// Create HTTP server
-const server = createServer(app);
+// Apply API versioning middleware
+app.use(versionMiddleware);
 
-// Initialize WebSocket server
-const wss = new WebSocketServer({ 
-  server,
-  verifyClient: (info, cb) => {
-    console.log('New WebSocket connection attempt');
-    authenticateWSConnection(info.req, (err) => {
-      if (err) {
-        console.log('WebSocket authentication failed:', err.message);
-        cb(false, 4401, err.message);
-      } else {
-        cb(true);
+// API version header for all responses
+app.use((req, res, next) => {
+  res.setHeader('X-API-Version', req.apiVersion || 'v1');
+  next();
+});
+
+// Create HTTP server
+const server = http.createServer(app);
+
+// Handle WebSocket authentication
+const authenticateWSConnection = (req, callback) => {
+  try {
+    let token = null;
+    
+    // Extract token from Sec-WebSocket-Protocol header
+    const protocols = req.headers['sec-websocket-protocol'];
+    if (protocols) {
+      const jwtProtocol = protocols.split(', ').find(p => p.startsWith('jwt.'));
+      if (jwtProtocol) {
+        token = jwtProtocol.substring(4); // Remove 'jwt.' prefix
       }
-    });
+    }
+    
+    if (!token) {
+      console.log('WebSocket connection rejected: No token provided');
+      callback(new Error('Unauthorized'));
+      return;
+    }
+    
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET, {
+        algorithms: ['HS256'],
+        audience: 'player-dashboard-api',
+        issuer: 'player-dashboard'
+      });
+
+      if (!decoded.sub || !decoded.email || !decoded.role) {
+        console.log('WebSocket token missing required claims');
+        callback(new Error('Invalid token format'));
+        return;
+      }
+
+      req.user = {
+        id: decoded.sub,
+        email: decoded.email,
+        role: decoded.role,
+        company_id: decoded.company_id
+      };
+      
+      console.log('WebSocket authenticated for user:', { email: decoded.email });
+      callback(null);
+    } catch (error) {
+      console.log('WebSocket token verification failed:', error.message);
+      callback(new Error('Invalid token'));
+    }
+  } catch (error) {
+    console.error('WebSocket authentication error:', error);
+    callback(new Error('Authentication failed'));
   }
+};
+
+// Create WebSocket server with secure configuration
+const wss = new WebSocketServer({
+  server, // Use the main HTTP server
+  verifyClient: (info, callback) => {
+    authenticateWSConnection(info.req, callback);
+  },
+  clientTracking: true,
+  perMessageDeflate: {
+    zlibDeflateOptions: {
+      chunkSize: 1024,
+      memLevel: 7,
+      level: 3
+    },
+    zlibInflateOptions: {
+      chunkSize: 10 * 1024
+    },
+    // Don't compress small messages
+    threshold: 1024
+  }
+});
+
+// PING configuration to detect dead connections
+const PING_INTERVAL = 30000; // 30 seconds
+const PING_TIMEOUT = 5000; // 5 seconds
+
+// Add security headers for WebSocket connections
+wss.on('headers', (headers, request) => {
+  // Add security headers to WebSocket handshake
+  headers.push('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+  headers.push('X-Content-Type-Options: nosniff');
+  headers.push('X-XSS-Protection: 1; mode=block');
+  headers.push('X-Frame-Options: DENY');
 });
 
 // Initialize Firebase Admin
@@ -524,30 +616,68 @@ const validateMessage = (message) => {
 wss.on('connection', function connection(ws, req) {
   console.log('New WebSocket connection established');
   ws.isAlive = true;
-  ws.user = req.user;
-  
-  // Set up heartbeat for this connection
-  const heartbeat = setInterval(() => {
+  ws.pingTimeout = null;
+
+  // Set up ping interval for this connection
+  const pingInterval = setInterval(() => {
     if (!ws.isAlive) {
-      clearInterval(heartbeat);
+      clearInterval(pingInterval);
+      clearTimeout(ws.pingTimeout);
       return ws.terminate();
     }
-    ws.isAlive = false;
-    ws.send(JSON.stringify({
-      type: 'heartbeat',
-      timestamp: Date.now()
-    }));
-  }, HEARTBEAT_INTERVAL);
 
-  // Handle pong responses
+    ws.isAlive = false;
+    ws.ping();
+    ws.pingTimeout = setTimeout(() => {
+      ws.terminate();
+    }, PING_TIMEOUT);
+  }, PING_INTERVAL);
+
+  ws.on('pong', () => {
+    ws.isAlive = true;
+    clearTimeout(ws.pingTimeout);
+  });
+
   ws.on('message', (message) => {
     try {
-      const data = JSON.parse(message);
-      if (data.type === 'heartbeat') {
-        ws.isAlive = true;
+      // Handle both string and object messages
+      let parsedMessage;
+      try {
+        if (typeof message === 'string') {
+          parsedMessage = JSON.parse(message);
+        } else {
+          parsedMessage = JSON.parse(message.toString());
+        }
+      } catch (parseError) {
+        console.warn('Failed to parse WebSocket message:', message.toString());
         return;
       }
-      handleWebSocketMessage(ws, data);
+
+      // Handle different message types
+      switch (parsedMessage.type) {
+        case 'player_created':
+        case 'player_updated':
+        case 'player_deleted':
+          if (!parsedMessage.data) {
+            console.warn('Missing data for operation:', parsedMessage.type);
+            return;
+          }
+          broadcastEvent(parsedMessage.type, parsedMessage.data);
+          break;
+          
+        case 'pong':
+          ws.isAlive = true;
+          break;
+
+        case 'heartbeat':
+          // Handle heartbeat message
+          ws.send(JSON.stringify({ type: 'heartbeat_ack', timestamp: Date.now() }));
+          ws.isAlive = true;
+          break;
+          
+        default:
+          console.warn('Unknown message type:', parsedMessage.type);
+      }
     } catch (error) {
       console.error('Error processing WebSocket message:', error);
     }
@@ -555,61 +685,10 @@ wss.on('connection', function connection(ws, req) {
 
   // Clear intervals on close
   ws.on('close', () => {
-    clearInterval(heartbeat);
+    clearInterval(pingInterval);
+    clearTimeout(ws.pingTimeout);
   });
 });
-
-// Handle WebSocket authentication
-const authenticateWSConnection = (req, callback) => {
-  try {
-    let token = null;
-    
-    // Extract token from Sec-WebSocket-Protocol header
-    const protocols = req.headers['sec-websocket-protocol'];
-    if (protocols) {
-      const jwtProtocol = protocols.split(', ').find(p => p.startsWith('jwt.'));
-      if (jwtProtocol) {
-        token = jwtProtocol.substring(4); // Remove 'jwt.' prefix
-      }
-    }
-    
-    if (!token) {
-      console.log('WebSocket connection rejected: No token provided');
-      callback(new Error('Unauthorized'));
-      return;
-    }
-    
-    try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET, {
-        algorithms: ['HS256'],
-        audience: 'player-dashboard-api',
-        issuer: 'player-dashboard'
-      });
-
-      if (!decoded.sub || !decoded.email || !decoded.role) {
-        console.log('WebSocket token missing required claims');
-        callback(new Error('Invalid token format'));
-        return;
-      }
-
-      req.user = {
-        id: decoded.sub,
-        email: decoded.email,
-        role: decoded.role,
-        company_id: decoded.company_id
-      };
-      
-      console.log('WebSocket authenticated for user:', { email: decoded.email });
-      callback(null);
-    } catch (error) {
-      console.log('WebSocket token verification failed:', error.message);
-      callback(new Error('Invalid token'));
-    }
-  } catch (error) {
-    console.error('WebSocket authentication error:', error);
-    callback(new Error('Authentication failed'));
-  }
-};
 
 // API Routes
 
@@ -757,7 +836,7 @@ app.post('/api/players', auth, authorize(['superadmin', 'bedrijfsadmin']), async
   }
 });
 
-app.put('/api/players/:id', authenticateToken, async (req, res) => {
+app.put('/api/players/:id', auth, authorize(['superadmin', 'bedrijfsadmin', 'user']), async (req, res) => {
   try {
     const { id } = req.params;
     const updates = req.body;
@@ -2070,6 +2149,173 @@ app.post('/create-player', async (req, res) => {
     res.status(500).send(`Error: ${error.message}`);
   }
 });
+
+// API Routes with versioning
+// We'll wrap these routes to allow both /api and /api/v1 to work
+const v1Routes = express.Router();
+
+// Request signing endpoint - must come before other auth routes
+v1Routes.post('/auth/sign-request', auth, async (req, res) => {
+  try {
+    const { payload, userId, timestamp } = req.body;
+    
+    // Verify the requester is the same as the user ID in the payload
+    if (req.user.id !== userId) {
+      return res.status(403).json({ error: 'Unauthorized attempt to sign request for another user' });
+    }
+    
+    // Verify the timestamp is recent (within last 30 seconds)
+    const now = Date.now();
+    if (Math.abs(now - timestamp) > 30000) {
+      return res.status(400).json({ error: 'Request timestamp too old' });
+    }
+    
+    // Generate signature
+    const { signature } = signRequest(payload, userId);
+    
+    return res.json({ signature });
+  } catch (error) {
+    console.error('Error signing request:', error);
+    return res.status(500).json({ error: 'Failed to sign request' });
+  }
+});
+
+// Apply signature verification to sensitive operations
+v1Routes.post('/auth/change-password', auth, signatureMiddleware, async (req, res) => {
+  // ... existing change password code ...
+});
+
+v1Routes.post('/auth/update-profile', auth, signatureMiddleware, async (req, res) => {
+  // ... existing update profile code ...
+});
+
+v1Routes.post('/auth/enable-2fa', auth, signatureMiddleware, async (req, res) => {
+  // ... existing enable 2FA code ...
+});
+
+v1Routes.post('/auth/verify-2fa', auth, signatureMiddleware, async (req, res) => {
+  // ... existing verify 2FA code ...
+});
+
+v1Routes.post('/auth/disable-2fa', auth, signatureMiddleware, async (req, res) => {
+  // ... existing disable 2FA code ...
+});
+
+// Authentication routes
+// Login route with refresh token
+v1Routes.post('/auth/login', loginLimiter, async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    
+    // Basic validation
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email en wachtwoord zijn verplicht' });
+    }
+    
+    // Find the user by email
+    const user = await User.findOne({ email: email.toLowerCase() });
+    if (!user) {
+      return res.status(401).json({ error: 'Ongeldige inloggegevens' });
+    }
+    
+    // Check if the user is active
+    if (!user.isActive) {
+      return res.status(401).json({ error: 'Account is gedeactiveerd' });
+    }
+    
+    // Verify password
+    const isMatch = await user.comparePassword(password);
+    if (!isMatch) {
+      return res.status(401).json({ error: 'Ongeldige inloggegevens' });
+    }
+    
+    // Check 2FA if enabled
+    if (user.twoFactorEnabled) {
+      return res.json({
+        requiresTwoFactor: true,
+        user: { id: user._id }
+      });
+    }
+    
+    // Generate access token
+    const { token, jti, expiresIn } = generateAccessToken(user);
+    
+    // Generate refresh token
+    const refreshToken = await generateRefreshToken(user._id);
+    
+    // Update last login
+    user.lastLogin = new Date();
+    await user.save();
+    
+    // Success response
+    return res.json({
+      user: {
+        id: user._id,
+        email: user.email,
+        role: user.role,
+        name: user.name,
+        company_id: user.company_id
+      },
+      token,
+      refreshToken: refreshToken.token,
+      expiresIn
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    return res.status(500).json({ error: 'Er is een fout opgetreden tijdens het inloggen' });
+  }
+});
+
+// Logout route that revokes refresh token
+v1Routes.post('/auth/logout', auth, async (req, res) => {
+  try {
+    const refreshToken = req.body.refreshToken;
+    
+    if (!refreshToken) {
+      return res.status(400).json({ error: 'No refresh token provided' });
+    }
+    
+    // Revoke the refresh token
+    await revokeRefreshToken(refreshToken);
+    
+    // Blacklist the access token
+    const jti = req.user.jti;
+    if (jti) {
+      await addToBlacklist(jti, req.user.id);
+    }
+    
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Logout error:', error);
+    return res.status(500).json({ error: 'Error during logout' });
+  }
+});
+
+// Refresh token route
+v1Routes.post('/auth/refresh-token', async (req, res) => {
+  try {
+    const { refreshToken } = req.body;
+    
+    if (!refreshToken) {
+      return res.status(400).json({ error: 'No refresh token provided' });
+    }
+    
+    const { accessToken, refreshToken: newRefreshToken, expiresIn } = await refreshAccessToken(refreshToken);
+    
+    return res.json({
+      token: accessToken,
+      refreshToken: newRefreshToken,
+      expiresIn
+    });
+  } catch (error) {
+    console.error('Token refresh error:', error);
+    return res.status(401).json({ error: 'Invalid or expired refresh token' });
+  }
+});
+
+// Mount versioned routes
+app.use('/api', v1Routes);
+app.use('/api/v1', v1Routes); // Explicitly support v1
 
 // Start the server
 server.listen(PORT, () => {

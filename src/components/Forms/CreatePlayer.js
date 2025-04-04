@@ -121,6 +121,14 @@ function CreatePlayer() {
       // Reset form
       setDeviceId('');
       
+      // Emit WebSocket event to notify other clients
+      if (window.ws && window.ws.readyState === WebSocket.OPEN) {
+        window.ws.send(JSON.stringify({
+          type: 'player_created',
+          data: data
+        }));
+      }
+      
       // Redirect after 2 seconds
       setTimeout(() => {
         if (profile?.role === 'superadmin') {

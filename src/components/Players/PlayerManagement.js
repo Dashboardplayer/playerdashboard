@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Box,
   Card,
@@ -37,7 +37,7 @@ import {
   Search as SearchIcon,
   FilterList as FilterIcon,
   ExpandMore as ExpandMoreIcon,
-  DevicesOther as DeviceIcon,
+  DevicesOther,
   Business as BusinessIcon,
   Refresh as RefreshIcon,
   Delete as DeleteIcon,
@@ -70,88 +70,220 @@ const PlayerCard = ({
   const isSuperAdmin = profile?.role === 'superadmin';
 
   return (
-    <Card sx={{ height: '100%' }}>
-      <CardContent>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
-          <Typography variant="h6" component="div" sx={{ display: 'flex', alignItems: 'center' }}>
-            <DeviceIcon sx={{ mr: 1 }} />
-            {player.device_id}
-          </Typography>
-          <Chip
-            label={player.is_online ? 'Online' : 'Offline'}
-            color={player.is_online ? 'success' : 'error'}
-            size="small"
-          />
+    <Card 
+      sx={{ 
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        transition: 'transform 0.2s, box-shadow 0.2s',
+        '&:hover': {
+          transform: 'translateY(-2px)',
+          boxShadow: (theme) => theme.shadows[4],
+        }
+      }}
+    >
+      <CardContent sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+        {/* Header Section */}
+        <Box sx={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'flex-start',
+          mb: 2,
+          pb: 1.5,
+          borderBottom: '1px solid',
+          borderColor: 'divider'
+        }}>
+          {/* Device ID and Company Info */}
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+            <Typography 
+              variant="h6" 
+              component="div" 
+              sx={{ 
+                display: 'flex', 
+                alignItems: 'center',
+                fontWeight: 600,
+                fontSize: '1.1rem'
+              }}
+            >
+              <DevicesOther sx={{ mr: 1, color: 'primary.main' }} />
+              {player.device_id}
+            </Typography>
+            {company && (
+              <Typography 
+                variant="body2" 
+                color="text.secondary" 
+                sx={{ 
+                  display: 'flex', 
+                  alignItems: 'center',
+                  ml: 0.5
+                }}
+              >
+                <BusinessIcon sx={{ mr: 1, fontSize: 'small' }} />
+                {company.company_name}
+              </Typography>
+            )}
+          </Box>
+
+          {/* Status Information */}
+          <Box sx={{ 
+            display: 'flex', 
+            flexDirection: 'column', 
+            alignItems: 'flex-end',
+            gap: 0.5
+          }}>
+            <Chip
+              label={player.is_online ? 'Online' : 'Offline'}
+              color={player.is_online ? 'success' : 'error'}
+              size="small"
+              sx={{ 
+                fontWeight: 500,
+                minWidth: '70px'
+              }}
+            />
+            {!player.is_online && player.last_seen && (
+              <Typography 
+                variant="caption" 
+                color="text.secondary"
+                sx={{ 
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 0.5
+                }}
+              >
+                <span role="img" aria-label="clock" style={{ fontSize: '0.9em' }}>🕒</span>
+                {new Date(player.last_seen).toLocaleString()}
+              </Typography>
+            )}
+          </Box>
         </Box>
 
-        {company && (
-          <Typography variant="body2" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-            <BusinessIcon sx={{ mr: 1, fontSize: 'small' }} />
-            {company.company_name}
-          </Typography>
-        )}
-
-        <Box sx={{ mb: 2 }}>
-          <Typography variant="body2" color="text.secondary" gutterBottom>
-            URL:
+        {/* URL Section */}
+        <Box sx={{ mb: 2, flex: 1 }}>
+          <Typography 
+            variant="body2" 
+            color="text.secondary" 
+            gutterBottom
+            sx={{ 
+              display: 'flex',
+              alignItems: 'center',
+              gap: 0.5,
+              mb: 1
+            }}
+          >
+            <span role="img" aria-label="link" style={{ fontSize: '1.1em' }}>🔗</span>
+            Current URL:
           </Typography>
           {editingUrl[player._id] ? (
-            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+            <Box sx={{ 
+              display: 'flex', 
+              gap: 1, 
+              alignItems: 'center',
+              backgroundColor: 'action.hover',
+              borderRadius: 1,
+              p: 1
+            }}>
               <TextField
                 size="small"
                 fullWidth
                 value={tempUrl}
                 onChange={(e) => setTempUrl(e.target.value)}
                 placeholder="Enter URL"
-              />
-              <IconButton 
-                size="small" 
-                color="primary"
-                onClick={() => handleUrlUpdate(player._id, tempUrl)}
-              >
-                <SaveIcon />
-              </IconButton>
-              <IconButton 
-                size="small" 
-                onClick={() => {
-                  setEditingUrl({ ...editingUrl, [player._id]: false });
-                  setTempUrl(player.current_url || '');
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    backgroundColor: 'background.paper'
+                  }
                 }}
-              >
-                <CancelIcon />
-              </IconButton>
+              />
+              <Box sx={{ display: 'flex', gap: 0.5 }}>
+                <Tooltip title="Save URL">
+                  <span>
+                    <IconButton 
+                      size="small" 
+                      color="primary"
+                      onClick={() => handleUrlUpdate(player._id, tempUrl)}
+                    >
+                      <SaveIcon />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Tooltip title="Cancel">
+                  <span>
+                    <IconButton 
+                      size="small"
+                      onClick={() => {
+                        setEditingUrl({ ...editingUrl, [player._id]: false });
+                        setTempUrl(player.current_url || '');
+                      }}
+                    >
+                      <CancelIcon />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+              </Box>
             </Box>
           ) : (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Typography variant="body2" noWrap sx={{ flex: 1 }}>
+            <Box sx={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: 1,
+              minHeight: '40px'
+            }}>
+              <Typography 
+                variant="body2" 
+                noWrap 
+                sx={{ 
+                  flex: 1,
+                  color: player.current_url ? 'text.primary' : 'text.disabled',
+                  fontStyle: player.current_url ? 'normal' : 'italic'
+                }}
+              >
                 {player.current_url || 'Not set'}
               </Typography>
-              <IconButton 
-                size="small"
-                onClick={() => setEditingUrl({ ...editingUrl, [player._id]: true })}
-              >
-                <EditIcon />
-              </IconButton>
+              <Tooltip title="Edit URL">
+                <span>
+                  <IconButton 
+                    size="small"
+                    onClick={() => setEditingUrl({ ...editingUrl, [player._id]: true })}
+                  >
+                    <EditIcon />
+                  </IconButton>
+                </span>
+              </Tooltip>
             </Box>
           )}
         </Box>
 
-        <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
+        {/* Actions Section */}
+        <Box sx={{ 
+          display: 'flex', 
+          gap: 1,
+          justifyContent: 'space-between',
+          mt: 'auto',
+          pt: 1,
+          borderTop: '1px solid',
+          borderColor: 'divider'
+        }}>
           <Button 
             size="small" 
             variant="outlined"
             onClick={() => handleDetailsClick(player)}
+            startIcon={<DevicesOther />}
+            sx={{ flex: 1 }}
           >
             Details
           </Button>
           {isSuperAdmin && (
-            <IconButton 
-              size="small" 
-              color="error"
-              onClick={() => onDelete(player)}
-            >
-              <DeleteIcon />
-            </IconButton>
+            <Tooltip title="Delete Player">
+              <span>
+                <IconButton 
+                  size="small" 
+                  color="error"
+                  onClick={() => onDelete(player)}
+                >
+                  <DeleteIcon />
+                </IconButton>
+              </span>
+            </Tooltip>
           )}
         </Box>
       </CardContent>
@@ -1169,89 +1301,10 @@ function PlayerManagement() {
   // State for bulk edit dialog
   const [bulkEditDialogOpen, setBulkEditDialogOpen] = useState(false);
 
-  // Add useEffect for initial data fetch
-  useEffect(() => {
-    refreshData();
-  }, []);
-
-  // Add WebSocket handler for real-time updates
-  useEffect(() => {
-    const handleWebSocketMessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        
-        console.log('PlayerManagement received WebSocket message:', message.type, message.data);
-        
-        // Update local state based on WebSocket messages
-        switch (message.type) {
-          case 'player_created':
-            if (message.data) {
-              console.log('Adding new player to state:', message.data);
-              setPlayers(prevPlayers => [...prevPlayers, message.data]);
-              setSuccess('Player added');
-            }
-            break;
-          case 'player_updated':
-            if (message.data && message.data._id) {
-              console.log('Updating player in state:', message.data._id);
-              setPlayers(prevPlayers => 
-                prevPlayers.map(player => 
-                  player._id === message.data._id ? {...player, ...message.data} : player
-                )
-              );
-            }
-            break;
-          case 'player_deleted':
-            if (message.data && message.data.id) {
-              console.log('Removing player from state:', message.data.id);
-              setPlayers(prevPlayers => {
-                // Log the current players and the one being removed
-                console.log('Current players:', prevPlayers.map(p => p._id));
-                console.log('Removing player with id:', message.data.id);
-                
-                return prevPlayers.filter(player => player._id !== message.data.id);
-              });
-              setSuccess('Player deleted');
-            }
-            break;
-          case 'company_updated':
-          case 'company_created':
-          case 'company_deleted':
-            // Refresh companies data
-            const fetchCompanies = async () => {
-              try {
-                const companiesRes = await companyAPI.getAll();
-                if (companiesRes.error) throw new Error(companiesRes.error);
-                setCompanies(companiesRes.data || []);
-              } catch (err) {
-                console.error('Error fetching companies:', err);
-              }
-            };
-            fetchCompanies();
-            break;
-          default:
-            break;
-        }
-      } catch (error) {
-        console.error('Error handling WebSocket message:', error);
-      }
-    };
-
-    // Subscribe to WebSocket events
-    if (window.ws) {
-      window.ws.addEventListener('message', handleWebSocketMessage);
-    }
-
-    return () => {
-      if (window.ws) {
-        window.ws.removeEventListener('message', handleWebSocketMessage);
-      }
-    };
-  }, []);
-
-  // Add a refresh function that can be passed to child components
-  const refreshData = async () => {
+  // Define refreshData function with useCallback
+  const refreshData = useCallback(async () => {
     setLoading(true);
+    setError('');
     try {
       const [playersRes, companiesRes] = await Promise.all([
         playerAPI.getAll(),
@@ -1275,7 +1328,94 @@ function PlayerManagement() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  // Add useEffect for initial data fetch
+  useEffect(() => {
+    refreshData();
+  }, [refreshData]);
+
+  // Add WebSocket handler for real-time updates
+  useEffect(() => {
+    const handleWebSocketMessage = (event) => {
+      try {
+        const message = JSON.parse(event.data);
+        
+        // Handle ping messages
+        if (message.type === 'ping') {
+          window.ws.send(JSON.stringify({ type: 'pong' }));
+          return;
+        }
+
+        // Handle error messages
+        if (message.type === 'error') {
+          console.error('WebSocket error:', message.error);
+          if (message.reconnect) {
+            window.location.reload();
+          }
+          return;
+        }
+        
+        // Update local state based on WebSocket messages
+        switch (message.type) {
+          case 'player_created':
+            if (message.data) {
+              setPlayers(prevPlayers => {
+                // Check if player already exists
+                const exists = prevPlayers.some(p => p._id === message.data._id);
+                if (!exists) {
+                  setSuccess('New player added');
+                  return [...prevPlayers, message.data];
+                }
+                return prevPlayers;
+              });
+            }
+            break;
+          case 'player_updated':
+            if (message.data && message.data._id) {
+              setPlayers(prevPlayers => {
+                const updatedPlayers = prevPlayers.map(player => 
+                  player._id === message.data._id ? {...player, ...message.data} : player
+                );
+                setSuccess('Player updated');
+                return updatedPlayers;
+              });
+            }
+            break;
+          case 'player_deleted':
+            if (message.data && (message.data.id || message.data._id)) {
+              const deletedId = message.data.id || message.data._id;
+              setPlayers(prevPlayers => {
+                const filteredPlayers = prevPlayers.filter(player => player._id !== deletedId);
+                setSuccess('Player deleted');
+                return filteredPlayers;
+              });
+            }
+            break;
+          case 'company_updated':
+          case 'company_created':
+          case 'company_deleted':
+            refreshData();
+            break;
+          default:
+            break;
+        }
+      } catch (error) {
+        console.error('Error handling WebSocket message:', error);
+      }
+    };
+
+    // Subscribe to WebSocket events
+    if (window.ws) {
+      window.ws.addEventListener('message', handleWebSocketMessage);
+    }
+
+    return () => {
+      if (window.ws) {
+        window.ws.removeEventListener('message', handleWebSocketMessage);
+      }
+    };
+  }, [refreshData]);
 
   // Filter and sort players
   const filteredAndSortedPlayers = useMemo(() => {
@@ -1403,9 +1543,13 @@ function PlayerManagement() {
       const { error } = await playerAPI.update(playerId, { current_url: newUrl });
       if (error) throw new Error(error);
       
-      // Don't refresh data - the WebSocket will handle the update
+      // Update local state immediately
+      setPlayers(prevPlayers => prevPlayers.map(player => 
+        player._id === playerId ? { ...player, current_url: newUrl } : player
+      ));
+      
       setEditingUrl({ ...editingUrl, [playerId]: false });
-      setSuccess('URL update request sent');
+      setSuccess('URL updated successfully');
     } catch (err) {
       setError('Failed to update URL: ' + err.message);
     }
@@ -1418,15 +1562,15 @@ function PlayerManagement() {
       return;
     }
 
-    console.log('Attempting to delete player:', player);
-    console.log('Player ID:', player._id);
-    console.log('Full player object:', JSON.stringify(player, null, 2));
+    console.log('Attempting to delete player: [MASKED]');
+    console.log('Player ID: [MASKED]');
+    console.log('Full player object:', '[SENSITIVE_DATA_MASKED]');
     
     setPlayerToDelete(player);
     setDeleteDialogOpen(true);
   };
 
-  // Update handleDeleteConfirm to rely on WebSocket for updates
+  // Update handleDeleteConfirm to properly handle WebSocket updates
   const handleDeleteConfirm = async () => {
     if (!playerToDelete) {
       console.error('No player selected for deletion');
@@ -1437,12 +1581,12 @@ function PlayerManagement() {
       const { error } = await playerAPI.delete(playerToDelete._id);
       if (error) throw new Error(error);
       
-      // Don't refresh data - the WebSocket will handle the update
-      // Just set UI state
+      // Update local state immediately
+      setPlayers(prevPlayers => prevPlayers.filter(p => p._id !== playerToDelete._id));
+      setSuccess('Player successfully deleted');
+      
       setDeleteDialogOpen(false);
       setPlayerToDelete(null);
-      
-      // The success message will be set by the WebSocket handler
     } catch (err) {
       console.error('Failed to delete player:', err);
       setError(`Failed to delete player: ${err.message}`);
@@ -1506,7 +1650,7 @@ function PlayerManagement() {
   };
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ width: '100%' }}>
       {/* Header with search and filters */}
       <Paper sx={{ p: 2, mb: 3 }}>
         <Grid container spacing={2} alignItems="center">
@@ -1531,6 +1675,7 @@ function PlayerManagement() {
                   </InputAdornment>
                 )
               }}
+              size="small"
             />
           </Grid>
 
@@ -1541,6 +1686,7 @@ function PlayerManagement() {
                 startIcon={<FilterIcon />}
                 onClick={() => setShowFilters(!showFilters)}
                 color={showFilters ? "primary" : "inherit"}
+                size="small"
               >
                 {`Filters ${Object.values(filters).some(val => val !== 'all') ? '(Actief)' : ''}`}
               </Button>
@@ -1564,6 +1710,7 @@ function PlayerManagement() {
                   <IconButton 
                     onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
                     color="primary"
+                    size="small"
                   >
                     {sortOrder === 'asc' ? <ArrowUpward /> : <ArrowDownward />}
                   </IconButton>
@@ -1571,7 +1718,11 @@ function PlayerManagement() {
               </Box>
 
               <Tooltip title="Ververs">
-                <IconButton onClick={refreshData} color="primary">
+                <IconButton 
+                  onClick={refreshData} 
+                  color="primary"
+                  size="small"
+                >
                   <RefreshIcon />
                 </IconButton>
               </Tooltip>
@@ -1581,6 +1732,7 @@ function PlayerManagement() {
                 color="primary"
                 onClick={() => setBulkEditDialogOpen(true)}
                 startIcon={<EditIcon />}
+                size="small"
               >
                 Bulk Bewerken
               </Button>
@@ -1590,14 +1742,8 @@ function PlayerManagement() {
           {/* Advanced Filters Section */}
           <Grid item xs={12}>
             <Collapse in={showFilters}>
-              <Paper sx={{ p: 2, mt: 2, bgcolor: 'background.default' }}>
+              <Box sx={{ mt: 2 }}>
                 <Grid container spacing={2}>
-                  <Grid item xs={12}>
-                    <Typography variant="subtitle2" sx={{ mb: 2 }}>
-                      Geavanceerde Filters
-                    </Typography>
-                  </Grid>
-                  
                   <Grid item xs={12} sm={6} md={3}>
                     <FormControl fullWidth size="small">
                       <InputLabel>Bedrijf</InputLabel>
@@ -1627,18 +1773,8 @@ function PlayerManagement() {
                         onChange={(e) => setFilters({ ...filters, onlineStatus: e.target.value })}
                       >
                         <MenuItem value="all">Alle Statussen</MenuItem>
-                        <MenuItem value="online">
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <CircleIcon sx={{ color: 'success.main', fontSize: 12 }} />
-                            Online
-                          </Box>
-                        </MenuItem>
-                        <MenuItem value="offline">
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <CircleIcon sx={{ color: 'error.main', fontSize: 12 }} />
-                            Offline
-                          </Box>
-                        </MenuItem>
+                        <MenuItem value="online">Online</MenuItem>
+                        <MenuItem value="offline">Offline</MenuItem>
                       </Select>
                     </FormControl>
                   </Grid>
@@ -1647,7 +1783,7 @@ function PlayerManagement() {
                     <FormControl fullWidth size="small">
                       <InputLabel>URL Status</InputLabel>
                       <Select
-                        value={filters.urlStatus || 'all'}
+                        value={filters.urlStatus}
                         label="URL Status"
                         onChange={(e) => setFilters({ ...filters, urlStatus: e.target.value })}
                       >
@@ -1662,7 +1798,7 @@ function PlayerManagement() {
                     <FormControl fullWidth size="small">
                       <InputLabel>Laatst Gezien</InputLabel>
                       <Select
-                        value={filters.lastSeen || 'all'}
+                        value={filters.lastSeen}
                         label="Laatst Gezien"
                         onChange={(e) => setFilters({ ...filters, lastSeen: e.target.value })}
                       >
@@ -1674,117 +1810,98 @@ function PlayerManagement() {
                       </Select>
                     </FormControl>
                   </Grid>
-
-                  <Grid item xs={12} sx={{ mt: 2, display: 'flex', justifyContent: 'space-between' }}>
-                    <Button
-                      size="small"
-                      onClick={() => setFilters({
-                        companyId: 'all',
-                        onlineStatus: 'all',
-                        urlStatus: 'all',
-                        lastSeen: 'all'
-                      })}
-                      startIcon={<Clear />}
-                    >
-                      Wis Filters
-                    </Button>
-                    <Box sx={{ display: 'flex', gap: 1 }}>
-                      <Typography variant="body2" color="text.secondary" sx={{ alignSelf: 'center' }}>
-                        {filteredAndSortedPlayers.length} resultaten gevonden
-                      </Typography>
-                    </Box>
-                  </Grid>
                 </Grid>
-              </Paper>
+
+                <Box sx={{ mt: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Button
+                    size="small"
+                    onClick={() => setFilters({
+                      companyId: 'all',
+                      onlineStatus: 'all',
+                      urlStatus: 'all',
+                      lastSeen: 'all'
+                    })}
+                    startIcon={<Clear />}
+                  >
+                    Wis Filters
+                  </Button>
+                  <Typography variant="body2" color="text.secondary">
+                    {filteredAndSortedPlayers.length} resultaten gevonden
+                  </Typography>
+                </Box>
+              </Box>
             </Collapse>
           </Grid>
         </Grid>
       </Paper>
 
-      {/* Players grouped by company */}
+      {/* Status Messages */}
       {loading ? (
-        <Typography>Loading...</Typography>
+        <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+          <CircularProgress />
+        </Box>
       ) : error ? (
-        <Typography color="error">{error}</Typography>
+        <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>
       ) : success ? (
-        <Typography color="success.main" sx={{ mb: 2 }}>{success}</Typography>
+        <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>
       ) : null}
 
-      <Box>
-        {/* Unassigned players */}
-        {groupedPlayers.noCompany.players.length > 0 && (
-          <Paper sx={{ mb: 3, p: 2 }}>
-            <Box
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                mb: 2,
-              }}
-            >
-              <Typography variant="h6">
-                Unassigned Players ({groupedPlayers.noCompany.players.length})
-              </Typography>
-              <IconButton
-                onClick={() => toggleCompanyExpansion('noCompany')}
-                sx={{ transform: expandedCompanies['noCompany'] ? 'rotate(180deg)' : 'none' }}
-              >
-                <ExpandMoreIcon />
-              </IconButton>
+      {/* Company Groups */}
+      {companies.map(company => {
+        const groupPlayers = groupedPlayers[company.company_id]?.players || [];
+        if (groupPlayers.length === 0) return null;
+
+        return (
+          <Paper key={company.company_id} sx={{ mb: 2, width: '100%' }}>
+            <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                    <BusinessIcon sx={{ mr: 1 }} />
+                    <Typography variant="h6" component="span">
+                      {company.company_name}
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    <Chip 
+                      size="small"
+                      label={`${groupPlayers.filter(p => p.is_online).length} Online`}
+                      color="success"
+                    />
+                    <Chip 
+                      size="small"
+                      label={`${groupPlayers.filter(p => !p.is_online).length} Offline`}
+                      color="error"
+                    />
+                  </Box>
+                </Box>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Button
+                    size="small"
+                    startIcon={<RefreshIcon />}
+                    onClick={() => handleBulkCommand(groupPlayers.map(p => p._id), 'reboot')}
+                  >
+                    Restart All
+                  </Button>
+                  <IconButton
+                    size="small"
+                    onClick={() => toggleCompanyExpansion(company.company_id)}
+                    sx={{ 
+                      transform: expandedCompanies[company.company_id] ? 'rotate(180deg)' : 'none',
+                      transition: 'transform 0.3s'
+                    }}
+                  >
+                    <ExpandMoreIcon />
+                  </IconButton>
+                </Box>
+              </Box>
             </Box>
 
-            <Collapse in={expandedCompanies['noCompany']}>
-              <Grid container spacing={2}>
-                {groupedPlayers.noCompany.players.map(player => (
-                  <Grid item xs={12} sm={6} md={4} lg={3} key={player.device_id || player.id}>
-                    <PlayerCard 
-                      player={player}
-                      company={companies.find(c => c.company_id === player.company_id)}
-                      editingUrl={editingUrl}
-                      setEditingUrl={setEditingUrl}
-                      handleUrlUpdate={handleUrlUpdate}
-                      handleDetailsClick={handleDetailsClick}
-                      onDelete={handleDeleteClick}
-                    />
-                  </Grid>
-                ))}
-              </Grid>
-            </Collapse>
-          </Paper>
-        )}
-
-        {/* Company groups */}
-        {companies.map(company => {
-          const groupPlayers = groupedPlayers[company.company_id]?.players || [];
-          if (groupPlayers.length === 0) return null;
-
-          return (
-            <Paper key={company.company_id} sx={{ mb: 3, p: 2 }}>
-              <Box
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  mb: 2,
-                }}
-              >
-                <Typography variant="h6">
-                  {company.company_name} ({groupPlayers.length})
-                </Typography>
-                <IconButton
-                  onClick={() => toggleCompanyExpansion(company.company_id)}
-                  sx={{
-                    transform: expandedCompanies[company.company_id] ? 'rotate(180deg)' : 'none',
-                  }}
-                >
-                  <ExpandMoreIcon />
-                </IconButton>
-              </Box>
-
-              <Collapse in={expandedCompanies[company.company_id]}>
+            <Collapse in={expandedCompanies[company.company_id]}>
+              <Box sx={{ p: 2 }}>
                 <Grid container spacing={2}>
                   {groupPlayers.map(player => (
-                    <Grid item xs={12} sm={6} md={4} lg={3} key={player.device_id || player.id}>
+                    <Grid item xs={12} sm={6} md={4} xl={3} key={player._id}>
                       <PlayerCard 
                         player={player}
                         company={company}
@@ -1797,13 +1914,80 @@ function PlayerManagement() {
                     </Grid>
                   ))}
                 </Grid>
-              </Collapse>
-            </Paper>
-          );
-        })}
-      </Box>
+              </Box>
+            </Collapse>
+          </Paper>
+        );
+      })}
 
-      {/* Details Dialog */}
+      {/* Unassigned Players */}
+      {groupedPlayers.noCompany.players.length > 0 && (
+        <Paper sx={{ mb: 2, width: '100%' }}>
+          <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                  <DevicesOther sx={{ mr: 1 }} />
+                  <Typography variant="h6" component="span">
+                    Unassigned Players
+                  </Typography>
+                </Box>
+                <Chip 
+                  label={groupedPlayers.noCompany.players.length}
+                  size="small"
+                  color="default"
+                />
+              </Box>
+              <IconButton
+                size="small"
+                onClick={() => toggleCompanyExpansion('noCompany')}
+                sx={{ 
+                  transform: expandedCompanies['noCompany'] ? 'rotate(180deg)' : 'none',
+                  transition: 'transform 0.3s'
+                }}
+              >
+                <ExpandMoreIcon />
+              </IconButton>
+            </Box>
+          </Box>
+
+          <Collapse in={expandedCompanies['noCompany']}>
+            <Box sx={{ p: 2 }}>
+              <Grid container spacing={2}>
+                {groupedPlayers.noCompany.players.map(player => (
+                  <Grid item xs={12} sm={6} md={4} xl={3} key={player._id}>
+                    <PlayerCard 
+                      player={player}
+                      editingUrl={editingUrl}
+                      setEditingUrl={setEditingUrl}
+                      handleUrlUpdate={handleUrlUpdate}
+                      handleDetailsClick={handleDetailsClick}
+                      onDelete={handleDeleteClick}
+                    />
+                  </Grid>
+                ))}
+              </Grid>
+            </Box>
+          </Collapse>
+        </Paper>
+      )}
+
+      {/* Empty State */}
+      {(!loading && filteredAndSortedPlayers.length === 0) && (
+        <Paper sx={{ p: 4, textAlign: 'center', width: '100%' }}>
+          <DevicesOther sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
+          <Typography variant="h6" gutterBottom>
+            Geen Players Gevonden
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {searchQuery 
+              ? 'Geen players gevonden met deze zoekcriteria. Pas de filters aan.'
+              : 'Er zijn nog geen players in het systeem. Voeg players toe om te beginnen.'}
+          </Typography>
+        </Paper>
+      )}
+
+      {/* Dialogs */}
       <PlayerDetailsDialog 
         open={detailsDialogOpen}
         onClose={() => setDetailsDialogOpen(false)}
@@ -1812,7 +1996,6 @@ function PlayerManagement() {
         onUpdate={refreshData}
       />
 
-      {/* Delete Confirmation Dialog */}
       <Dialog
         open={deleteDialogOpen}
         onClose={handleDeleteCancel}
@@ -1820,18 +2003,17 @@ function PlayerManagement() {
         <DialogTitle>Delete Player</DialogTitle>
         <DialogContent>
           <Typography>
-            Are you sure you want to delete player "{playerToDelete?.device_id}"? This action cannot be undone.
+            Weet je zeker dat je player "{playerToDelete?.device_id}" wilt verwijderen? Deze actie kan niet ongedaan worden gemaakt.
           </Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleDeleteCancel}>Cancel</Button>
+          <Button onClick={handleDeleteCancel}>Annuleren</Button>
           <Button onClick={handleDeleteConfirm} color="error" variant="contained">
-            Delete
+            Verwijderen
           </Button>
         </DialogActions>
       </Dialog>
 
-      {/* Add BulkEditDialog */}
       <BulkEditDialog
         open={bulkEditDialogOpen}
         onClose={() => setBulkEditDialogOpen(false)}

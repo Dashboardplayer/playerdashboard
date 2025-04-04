@@ -22,6 +22,56 @@ if (!isBrowser) {
   }
 }
 
+// Storage for failed emails in server context 
+const failedEmailQueue = [];
+
+// Import circuit breaker with a fallback
+let circuitBreaker;
+try {
+  circuitBreaker = require('./circuitBreakerService');
+} catch (error) {
+  console.error('Failed to import circuit breaker:', error);
+  // Create a dummy implementation that passes through calls
+  circuitBreaker = {
+    registerService: () => {},
+    exec: (serviceName, fn, ...args) => fn(...args)
+  };
+}
+
+// Register the email service with the circuit breaker
+circuitBreaker.registerService('mailjet', {
+  failureThreshold: 3, // 3 failures will open the circuit
+  resetTimeout: 60000, // 1 minute timeout before trying again
+  fallbackFn: async (to, subject, text, html) => {
+    console.error(`Email service unavailable. Would have sent email to ${to}`);
+    // Store failed emails for retry later
+    try {
+      if (typeof window !== 'undefined') {
+        // Browser environment: use localStorage
+        const failedEmails = JSON.parse(localStorage.getItem('failedEmails') || '[]');
+        failedEmails.push({ to, subject, text, html, timestamp: Date.now() });
+        localStorage.setItem('failedEmails', JSON.stringify(failedEmails));
+      } else {
+        // Server environment: use in-memory array
+        failedEmailQueue.push({ to, subject, text, html, timestamp: Date.now() });
+      }
+    } catch (error) {
+      console.error('Failed to store email for retry:', error);
+    }
+    return { status: 'queued_for_retry' };
+  },
+  healthCheckFn: async () => {
+    try {
+      // Simple health check - just verify the API keys are available
+      const apiKey = process.env.MAILJET_API_KEY;
+      const secretKey = process.env.MAILJET_SECRET_KEY;
+      return !!(apiKey && secretKey);
+    } catch (error) {
+      return false;
+    }
+  }
+});
+
 /**
  * Send an email using Mailjet
  * @param {string} to - Recipient email
@@ -29,7 +79,7 @@ if (!isBrowser) {
  * @param {string} text - Plain text content
  * @param {string} html - HTML content (optional)
  */
-const sendEmail = async (to, subject, text, html) => {
+let sendEmail = async (to, subject, text, html) => {
   // Don't try to send emails from browser environment
   if (isBrowser) {
     secureLog.info('Browser mock: Would send email', { to });
@@ -64,6 +114,88 @@ const sendEmail = async (to, subject, text, html) => {
     return { success: false, error };
   }
 };
+
+// Wrap the existing sendEmail function with circuit breaker
+const originalSendEmail = sendEmail;
+sendEmail = async (to, subject, text, html) => {
+  return circuitBreaker.exec('mailjet', originalSendEmail, to, subject, text, html);
+};
+
+// Add a function to retry failed emails
+const retryFailedEmails = async () => {
+  try {
+    let failedEmails = [];
+    let newFailedEmails = [];
+    
+    // Get failed emails from the appropriate storage
+    if (typeof window !== 'undefined') {
+      // Browser environment: use localStorage
+      failedEmails = JSON.parse(localStorage.getItem('failedEmails') || '[]');
+    } else {
+      // Server environment: use in-memory array
+      failedEmails = [...failedEmailQueue];
+      // Clear the queue as we'll repopulate it with emails that still need to be retried
+      failedEmailQueue.length = 0;
+    }
+    
+    if (failedEmails.length === 0) return;
+    
+    console.log(`Attempting to retry ${failedEmails.length} failed emails`);
+    
+    const retryResults = [];
+    
+    for (const email of failedEmails) {
+      try {
+        // Only retry emails that are at least 1 minute old
+        if (Date.now() - email.timestamp < 60000) {
+          newFailedEmails.push(email);
+          continue;
+        }
+        
+        // Check circuit breaker status
+        const status = circuitBreaker.getStatus('mailjet');
+        if (status && status.state === 'OPEN') {
+          newFailedEmails.push(email);
+          continue;
+        }
+        
+        // Try to send the email
+        const result = await originalSendEmail(
+          email.to, 
+          email.subject, 
+          email.text, 
+          email.html
+        );
+        retryResults.push({ email, result, success: true });
+      } catch (error) {
+        console.error(`Failed to retry email to ${email.to}:`, error);
+        // Update timestamp and keep in queue
+        email.timestamp = Date.now();
+        newFailedEmails.push(email);
+        retryResults.push({ email, error: error.message, success: false });
+      }
+    }
+    
+    // Update the storage with emails that still need to be retried
+    if (typeof window !== 'undefined') {
+      // Browser environment: use localStorage
+      localStorage.setItem('failedEmails', JSON.stringify(newFailedEmails));
+    } else {
+      // Server environment: use in-memory array
+      failedEmailQueue.push(...newFailedEmails);
+    }
+    
+    console.log(`Email retry complete. ${retryResults.filter(r => r.success).length} succeeded, ${newFailedEmails.length} still pending.`);
+    
+    return retryResults;
+  } catch (error) {
+    console.error('Error retrying failed emails:', error);
+    return [];
+  }
+};
+
+// Set up periodic retries
+setInterval(retryFailedEmails, 5 * 60 * 1000); // Every 5 minutes
 
 /**
  * Send a password reset email
@@ -320,5 +452,6 @@ Het Display Beheer Team
 module.exports = {
   sendEmail,
   sendPasswordResetEmail,
-  sendRegistrationInvitationEmail
+  sendRegistrationInvitationEmail,
+  retryFailedEmails
 };

@@ -10,6 +10,7 @@ import crypto from 'crypto';
 import RefreshToken from '../models/RefreshToken';
 import { addToBlacklist, blacklistAllUserTokens } from './tokenBlacklistService';
 import { generateUUID } from '../utils/uuidUtils.js';
+import { apiClient } from '../utils/apiClient.js';
 
 // WebSocket Configuration
 const wsBaseUrl = process.env.NODE_ENV === 'production'
@@ -289,98 +290,168 @@ browserAuth.getTokens = () => ({
   refreshToken: localStorage.getItem('refreshToken')
 });
 
-// Login a user with enhanced security
+// Storage keys
+const TOKEN_STORAGE_KEY = 'auth_token';
+const REFRESH_TOKEN_STORAGE_KEY = 'refresh_token';
+const TOKEN_EXPIRY_KEY = 'token_expiry';
+const USER_STORAGE_KEY = 'user';
+
+// Add refresh token related functions
+export const storeTokens = (accessToken, refreshToken, expiresIn) => {
+  const expiryTime = Date.now() + (expiresIn * 1000);
+  localStorage.setItem(TOKEN_STORAGE_KEY, accessToken);
+  localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, refreshToken);
+  localStorage.setItem(TOKEN_EXPIRY_KEY, expiryTime.toString());
+};
+
+export const getStoredTokens = () => {
+  return {
+    accessToken: localStorage.getItem(TOKEN_STORAGE_KEY),
+    refreshToken: localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY),
+    expiryTime: parseInt(localStorage.getItem(TOKEN_EXPIRY_KEY) || '0')
+  };
+};
+
+export const clearStoredTokens = () => {
+  localStorage.removeItem(TOKEN_STORAGE_KEY);
+  localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
+  localStorage.removeItem(TOKEN_EXPIRY_KEY);
+  localStorage.removeItem(USER_STORAGE_KEY);
+};
+
+export const isTokenExpired = () => {
+  const { expiryTime } = getStoredTokens();
+  return Date.now() >= expiryTime;
+};
+
+export const isTokenExpiringSoon = (thresholdSeconds = 60) => {
+  const { expiryTime } = getStoredTokens();
+  return (expiryTime - Date.now()) <= (thresholdSeconds * 1000);
+};
+
+// Update the login function to store refresh tokens
 export const loginUser = async (email, password) => {
   try {
-    const user = await User.findOne({ email });
-    if (!user) {
-      throw new Error('Invalid login credentials');
+    // Check rate limiting
+    const clientIp = 'client'; // In browser environment, we use a fixed value
+    if (rateLimiter.isRateLimited(clientIp)) {
+      const remainingTimeMs = rateLimiter.getRemainingTime(clientIp);
+      const remainingMinutes = Math.ceil(remainingTimeMs / 1000 / 60);
+      throw new Error(`Te veel inlogpogingen. Probeer het over ${remainingMinutes} ${remainingMinutes === 1 ? 'minuut' : 'minuten'} opnieuw.`);
     }
-
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      throw new Error('Invalid login credentials');
-    }
-
-    if (!user.isActive) {
-      throw new Error('Account is disabled');
-    }
-
-    const { token, jti } = generateToken(user);
-    const refreshToken = await RefreshToken.generateRefreshToken(user._id);
-
-    return {
-      user: {
-        id: user._id,
-        email: user.email,
-        role: user.role
-      },
-      token,
-      refreshToken: refreshToken.token
-    };
-  } catch (error) {
-    console.error('Login error:', error);
-    throw error;
-  }
-};
-
-// Refresh access token
-export const refreshAccessToken = async (refreshToken) => {
-  try {
-    const token = await RefreshToken.findOne({ token: refreshToken });
-    if (!token || !token.isActive()) {
-      throw new Error('Invalid refresh token');
-    }
-
-    const user = await User.findById(token.user);
-    if (!user || !user.isActive) {
-      throw new Error('User not found or inactive');
-    }
-
-    // Generate new access token
-    const { token: newToken, jti } = generateToken(user);
-
-    return {
-      token: newToken,
-      user: {
-        id: user._id,
-        email: user.email,
-        role: user.role
-      }
-    };
-  } catch (error) {
-    console.error('Token refresh error:', error);
-    throw error;
-  }
-};
-
-// Verify token and handle refresh
-export const verifyToken = async () => {
-  try {
-    const { accessToken, refreshToken } = browserAuth.getTokens();
-    if (!accessToken || !refreshToken) {
-      return null;
-    }
-
-    // Check if token is expired
-    const decoded = jwtDecode(accessToken);
-    const currentTime = Date.now() / 1000;
     
-    if (decoded.exp < currentTime) {
-      // Token is expired, try to refresh
-      const refreshResult = await refreshAccessToken(refreshToken);
-      if (refreshResult.error) {
-        return null;
-      }
-      return refreshResult.user;
+    const sanitizedEmail = sanitizeInput(email);
+    if (!isValidEmail(sanitizedEmail)) {
+      throw new Error('Ongeldig e-mailadres');
     }
-
-    return browserAuth.getUser();
+    
+    const response = await apiClient.post('/auth/login', {
+      email: sanitizedEmail,
+      password // We don't sanitize password as it may contain special characters
+    });
+    
+    // Handle 2FA requirement if needed
+    if (response.data.requiresTwoFactor) {
+      return { requiresTwoFactor: true, userId: response.data.user.id };
+    }
+    
+    // Store tokens
+    const { token, refreshToken, expiresIn } = response.data;
+    storeTokens(token, refreshToken, expiresIn);
+    
+    // Store user info
+    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(response.data.user));
+    
+    // Reset rate limiting on successful login
+    rateLimiter.resetAttempts(clientIp);
+    
+    return { user: response.data.user };
   } catch (error) {
-    console.error('Token verification error:', error);
-    return null;
+    // Increment failed attempts
+    const clientIp = 'client';
+    rateLimiter.increment(clientIp);
+    
+    if (error.response && error.response.data && error.response.data.error) {
+      throw new Error(error.response.data.error);
+    }
+    throw error;
   }
 };
+
+// New function to refresh the access token
+export const refreshToken = async () => {
+  try {
+    const { refreshToken } = getStoredTokens();
+    
+    if (!refreshToken) {
+      throw new Error('No refresh token available');
+    }
+    
+    const response = await apiClient.post('/auth/refresh-token', { refreshToken });
+    
+    // Store the new tokens
+    const { token, refreshToken: newRefreshToken, expiresIn } = response.data;
+    storeTokens(token, newRefreshToken || refreshToken, expiresIn);
+    
+    return { token, refreshToken: newRefreshToken, expiresIn };
+  } catch (error) {
+    console.error('Error refreshing token:', error);
+    // Clear auth on refresh failure
+    clearStoredTokens();
+    throw error;
+  }
+};
+
+// Update the logout function to revoke refresh token
+export const logoutUser = async () => {
+  try {
+    const { refreshToken } = getStoredTokens();
+    
+    if (refreshToken) {
+      await apiClient.post('/auth/logout', { refreshToken });
+    }
+    
+    // Clear stored tokens
+    clearStoredTokens();
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error during logout:', error);
+    // Clear tokens even if the API call fails
+    clearStoredTokens();
+    throw error;
+  }
+};
+
+// Auto-refresh token setup
+export const setupTokenRefresh = () => {
+  // Check token expiry every 30 seconds
+  const checkInterval = setInterval(() => {
+    const { accessToken, refreshToken } = getStoredTokens();
+    
+    // If no tokens, clear the interval
+    if (!accessToken || !refreshToken) {
+      clearInterval(checkInterval);
+      return;
+    }
+    
+    // If token is expiring soon, refresh it
+    if (isTokenExpiringSoon(120)) { // 2 minutes before expiry
+      refreshToken()
+        .catch(error => {
+          console.error('Auto-refresh failed:', error);
+          // Force logout on refresh failure
+          clearStoredTokens();
+          window.location.href = '/login';
+        });
+    }
+  }, 30000); // Check every 30 seconds
+  
+  return () => clearInterval(checkInterval); // Return cleanup function
+};
+
+// Initialize token refresh on import
+setupTokenRefresh();
 
 // Get user by ID
 export const getUserById = async (userId) => {
@@ -579,40 +650,6 @@ window.addEventListener('storage', (event) => {
 if (browserAuth.getUser()) {
   initializeWebSocket();
 }
-
-// Logout user
-export const logoutUser = async (userId, token, jti) => {
-  try {
-    // Close WebSocket connection first
-    if (ws) {
-      ws.close();
-      ws = null;
-    }
-
-    // Get token expiration from JWT
-    const decoded = jwt.decode(token);
-    if (!decoded || !decoded.exp) {
-      throw new Error('Invalid token');
-    }
-
-    // Add token to blacklist
-    await addToBlacklist(jti, decoded.exp, userId, token, 'LOGOUT');
-
-    // Revoke all refresh tokens for the user
-    await RefreshToken.updateMany(
-      { user: userId, revokedAt: null },
-      { revokedAt: new Date() }
-    );
-
-    // Clear local auth data
-    browserAuth.clearAuth();
-
-    return true;
-  } catch (error) {
-    console.error('Logout error:', error);
-    throw error;
-  }
-};
 
 // Change password
 export const changePassword = async (userId, oldPassword, newPassword) => {
