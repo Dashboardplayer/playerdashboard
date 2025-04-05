@@ -258,13 +258,28 @@ function LoginPage() {
       // Reset login attempts on successful login
       resetLoginAttempts();
       
-      // Save profile to context and navigate
-      setProfile(data.user);
-      
-      if (data.user.role === 'superadmin') {
-        navigate('/superadmin-dashboard');
-      } else {
-        navigate('/company-dashboard');
+      // Store authentication data properly
+      try {
+        console.log('Login successful, setting up authentication...');
+        
+        // Store tokens and user data in localStorage
+        browserAuth.setAuth(data.token, data.refreshToken, data.user);
+        
+        // Then update the user context
+        setProfile(data.user);
+        
+        // Small delay to allow the auth context to update before navigation
+        setTimeout(() => {
+          if (data.user.role === 'superadmin') {
+            navigate('/superadmin-dashboard');
+          } else {
+            navigate('/company-dashboard');
+          }
+        }, 200);
+      } catch (authErr) {
+        console.error('Error setting authentication:', authErr);
+        setError('Er is een fout opgetreden bij het inloggen.');
+        setLoading(false);
       }
     } catch (err) {
       console.error('Unexpected error:', err);
@@ -329,13 +344,17 @@ function LoginPage() {
       // Store auth data using browserAuth utility
       browserAuth.setAuth(data.token, data.refreshToken, data.user);
       
+      // Update the user context
       setProfile(data.user);
       
-      if (data.user.role === 'superadmin') {
-        navigate('/superadmin-dashboard');
-      } else {
-        navigate('/company-dashboard');
-      }
+      // Small delay to allow the auth context to update before navigation
+      setTimeout(() => {
+        if (data.user.role === 'superadmin') {
+          navigate('/superadmin-dashboard');
+        } else {
+          navigate('/company-dashboard');
+        }
+      }, 100);
     } catch (err) {
       console.error('2FA verification error:', err);
       setError('Er is een fout opgetreden bij de verificatie');

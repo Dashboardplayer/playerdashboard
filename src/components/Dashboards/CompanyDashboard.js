@@ -195,7 +195,10 @@ function CompanyDashboard() {
     );
   }
 
-  if (!user && !localStorage.getItem('user')) {
+  // Check for user data - first from context, then from localStorage
+  const userData = user || JSON.parse(localStorage.getItem('user') || 'null');
+  
+  if (!userData) {
     return (
       <Box sx={{ p: 3 }}>
         <Alert severity="warning">
@@ -206,7 +209,7 @@ function CompanyDashboard() {
   }
 
   // Use user from context, or try to get from localStorage as fallback
-  const currentUser = user || JSON.parse(localStorage.getItem('user') || '{}');
+  const currentUser = userData;
   
   const getRoleColor = (role) => {
     switch (role) {

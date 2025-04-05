@@ -10,7 +10,7 @@ import crypto from 'crypto';
 import RefreshToken from '../models/RefreshToken';
 import { addToBlacklist, blacklistAllUserTokens } from './tokenBlacklistService';
 import { generateUUID } from '../utils/uuidUtils.js';
-import { apiClient } from '../utils/apiClient.js';
+import { apiClient } from './api';
 
 // WebSocket Configuration
 const wsBaseUrl = process.env.NODE_ENV === 'production'
@@ -290,7 +290,7 @@ browserAuth.getTokens = () => ({
   refreshToken: localStorage.getItem('refreshToken')
 });
 
-// Storage keys
+// Storage keys for tokens
 const TOKEN_STORAGE_KEY = 'auth_token';
 const REFRESH_TOKEN_STORAGE_KEY = 'refresh_token';
 const TOKEN_EXPIRY_KEY = 'token_expiry';

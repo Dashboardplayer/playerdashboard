@@ -1,22 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { browserAuth } from '../utils/browserUtils';
 
 const AuthContext = createContext(null);
-
-export const browserAuth = {
-  getUser: () => {
-    // Get user from localStorage
-    const userStr = localStorage.getItem('user');
-    return userStr ? JSON.parse(userStr) : null;
-  },
-  setUser: (user) => {
-    // Store user in localStorage
-    if (user) {
-      localStorage.setItem('user', JSON.stringify(user));
-    } else {
-      localStorage.removeItem('user');
-    }
-  }
-};
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -29,16 +14,49 @@ export const AuthProvider = ({ children }) => {
       setUser(storedUser);
     }
     setLoading(false);
+    
+    // Listen for storage events to sync auth state across tabs
+    const handleStorageChange = (event) => {
+      if (event.key === 'user') {
+        const newUser = event.newValue ? JSON.parse(event.newValue) : null;
+        setUser(newUser);
+      } else if (event.key === 'accessToken' && !event.newValue) {
+        // If token is removed, clear user
+        setUser(null);
+      }
+    };
+    
+    // Listen for custom auth events
+    const handleAuthEvent = () => {
+      const storedUser = browserAuth.getUser();
+      setUser(storedUser);
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('auth_logout', () => setUser(null));
+    window.addEventListener('auth_update', handleAuthEvent);
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('auth_logout', () => setUser(null));
+      window.removeEventListener('auth_update', handleAuthEvent);
+    };
   }, []);
 
   const login = (userData) => {
-    browserAuth.setUser(userData);
+    // Just update the React state - the actual storage is managed by browserAuth.setAuth
     setUser(userData);
+    // Dispatch event to ensure synchronization
+    window.dispatchEvent(new Event('auth_update'));
   };
 
   const logout = () => {
-    browserAuth.setUser(null);
+    // Clear from localStorage
+    browserAuth.clearAuth();
+    // Update React state
     setUser(null);
+    // Dispatch event to ensure synchronization
+    window.dispatchEvent(new Event('auth_logout'));
   };
 
   const value = {

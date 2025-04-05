@@ -55,49 +55,91 @@ const storeCachedUsers = (users) => {
   localStorage.setItem('cached_users', JSON.stringify(users));
 };
 
+// Track user activity for session management
 let lastActivityTimestamp = Date.now();
 let activityCheckInterval = null;
+let activityListenersActive = false;
 
-// Update last activity timestamp on user interaction
+// Update last activity timestamp
 const updateLastActivity = () => {
   lastActivityTimestamp = Date.now();
 };
 
-// Update setupActivityListeners to be more comprehensive
-const setupActivityListeners = () => {
-  const events = [
-    'mousedown', 
-    'keydown', 
-    'mousemove', 
-    'wheel', 
-    'touchstart', 
-    'scroll', 
-    'click',
-    'input',
-    'change'
-  ];
-  
-  const updateActivity = () => {
-    lastActivityTimestamp = Date.now();
-    // Reset any pending token expiration checks
-    if (activityCheckInterval) {
-      clearInterval(activityCheckInterval);
-      startTokenExpirationChecker();
-    }
-  };
-  
-  events.forEach(event => {
-    window.addEventListener(event, updateActivity, { passive: true });
-  });
+// Use debounced handler to prevent excessive updates
+const updateActivity = () => {
+  // Only update if not updated in the last second to reduce overhead
+  const now = Date.now();
+  if (now - lastActivityTimestamp > 1000) {
+    lastActivityTimestamp = now;
+  }
 };
 
-// Remove activity listeners
-const cleanupActivityListeners = () => {
-  const events = ['mousedown', 'keydown', 'mousemove', 'wheel', 'touchstart', 'scroll'];
+// Throttled version of updateActivity to prevent excessive updates
+const throttledUpdateActivity = (() => {
+  let lastCall = 0;
+  return () => {
+    const now = Date.now();
+    if (now - lastCall > 5000) { // Only update every 5 seconds at most
+      lastCall = now;
+      updateActivity();
+    }
+  };
+})();
+
+// Set up listeners for user activity to keep session alive
+const setupActivityListeners = () => {
+  // Avoid duplicate listeners
+  if (activityListenersActive) {
+    return;
+  }
   
-  events.forEach(event => {
-    window.removeEventListener(event, updateLastActivity);
-  });
+  // First clean up any existing listeners to prevent duplicates
+  cleanupActivityListeners();
+  
+  // Set a unique flag to track if listeners are active
+  activityListenersActive = true;
+  
+  // Use passive listeners for scroll/touch events to improve performance
+  const options = { passive: true, capture: false };
+  
+  // Attach listeners with error handling
+  try {
+    window.addEventListener('mousemove', throttledUpdateActivity, options);
+    window.addEventListener('keydown', updateActivity);
+    window.addEventListener('click', updateActivity);
+    window.addEventListener('scroll', throttledUpdateActivity, options);
+    window.addEventListener('touchstart', throttledUpdateActivity, options);
+    window.addEventListener('focus', updateActivity);
+  } catch (error) {
+    secureLog.error('Error setting up activity listeners:', error);
+  }
+
+  // Initial activity update
+  updateLastActivity();
+};
+
+// Clean up all activity listeners
+const cleanupActivityListeners = () => {
+  try {
+    // Remove all listeners even if they weren't set by us (defensive)
+    window.removeEventListener('mousemove', throttledUpdateActivity);
+    window.removeEventListener('keydown', updateActivity);
+    window.removeEventListener('click', updateActivity);
+    window.removeEventListener('scroll', throttledUpdateActivity);
+    window.removeEventListener('touchstart', throttledUpdateActivity);
+    window.removeEventListener('focus', updateActivity);
+    
+    // Clear any tracking interval
+    if (activityCheckInterval) {
+      clearInterval(activityCheckInterval);
+      activityCheckInterval = null;
+    }
+    
+    // Reset the flag
+    activityListenersActive = false;
+  } catch (error) {
+    secureLog.error('Error cleaning up activity listeners:', error);
+  }
 };
 
 // Add a flag to prevent multiple logout attempts
@@ -188,7 +230,6 @@ const fetchWithAuth = async (endpoint, options = {}) => {
   const user = browserAuth.getUser();
   
   if (!user || !user.token) {
-    handleTokenExpiration('expired');
     return { error: 'Authentication required', useBackup: true };
   }
 
@@ -208,9 +249,11 @@ const fetchWithAuth = async (endpoint, options = {}) => {
 
           const refreshData = await response.json();
           if (refreshData.token && refreshData.user) {
-            // Update the stored tokens
+            // Update the stored tokens and ensure proper update events are fired
             browserAuth.setAuth(refreshData.token, refreshToken, refreshData.user);
-            user.token = refreshData.token; // Update token for current request
+            
+            // Update the token for the current request
+            user.token = refreshData.token;
           } else {
             handleTokenExpiration('refresh_failed');
             return { error: 'Session expired', useBackup: true };
@@ -234,25 +277,16 @@ const fetchWithAuth = async (endpoint, options = {}) => {
       }
     });
 
-    const data = await response.json();
-
-    // Check for token expiration in response
-    if (response.status === 401 || 
-        (data.error && (
-          data.error.includes('jwt expired') || 
-          data.error.includes('invalid token') ||
-          data.error.includes('Token expired')
-        ))) {
-      handleTokenExpiration('expired');
+    // Check if session expired (401 Unauthorized)
+    if (response.status === 401) {
+      handleTokenExpiration('unauthorized');
       return { error: 'Session expired', useBackup: true };
     }
 
-    return { data, error: null };
+    const data = await response.json();
+    return data;
   } catch (error) {
-    secureLog.error('API request failed', {
-      endpoint,
-      error: error.message
-    });
+    console.error('API request error:', error);
     return { error: error.message, useBackup: true };
   }
 };
@@ -269,40 +303,58 @@ const clearAllCache = () => {
 
 // Update startTokenExpirationChecker to be more precise
 const startTokenExpirationChecker = () => {
+  // Clean up any existing interval first
+  if (activityCheckInterval) {
+    clearInterval(activityCheckInterval);
+    activityCheckInterval = null;
+  }
+  
   // Set up activity monitoring if not already set
   setupActivityListeners();
   updateLastActivity(); // Initialize last activity
   
+  let lastCheckTime = 0;
+  
   const checkToken = () => {
-    const user = browserAuth.getUser();
-    if (!user?.token) return;
-    
-    const currentTime = Date.now();
-    const inactiveTime = currentTime - lastActivityTimestamp;
-    
-    // Only check for expiration if user has been inactive
-    if (inactiveTime >= INACTIVITY_TIMEOUT) {
-      if (isTokenExpired(user.token)) {
-        handleTokenExpiration('inactivity');
+    try {
+      const now = Date.now();
+      
+      // Throttle checks to maximum once per 15 seconds
+      if (now - lastCheckTime < 15000) {
+        return;
       }
+      
+      lastCheckTime = now;
+      
+      const user = browserAuth.getUser();
+      if (!user?.token) return;
+      
+      const inactiveTime = now - lastActivityTimestamp;
+      
+      // Only check for expiration if user has been inactive or if we're approaching token expiry
+      if (inactiveTime >= INACTIVITY_TIMEOUT) {
+        if (isTokenExpired(user.token)) {
+          handleTokenExpiration('inactivity');
+        }
+      }
+    } catch (error) {
+      secureLog.error('Error in token expiration check:', error);
     }
   };
   
-  // Clear any existing interval
-  if (activityCheckInterval) {
-    clearInterval(activityCheckInterval);
-  }
-  
-  // Set up new interval
+  // Set up new interval with a reasonable delay (30 seconds)
   activityCheckInterval = setInterval(checkToken, TOKEN_CHECK_INTERVAL);
   
-  // Clean up on page unload
-  window.addEventListener('unload', () => {
-    if (activityCheckInterval) {
-      clearInterval(activityCheckInterval);
-    }
-    cleanupActivityListeners();
-  });
+  // Clean up on page unload to prevent memory leaks
+  if (typeof window !== 'undefined') {
+    window.addEventListener('unload', () => {
+      if (activityCheckInterval) {
+        clearInterval(activityCheckInterval);
+        activityCheckInterval = null;
+      }
+      cleanupActivityListeners();
+    });
+  }
 };
 
 // Initialize token checker when user logs in
@@ -373,13 +425,29 @@ function initializeWebSocket() {
       return;
     }
 
+    // Check if the browser is online
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      secureLog.warn('Browser is offline, delaying WebSocket connection');
+      // Set up an event listener for when the browser comes back online
+      window.addEventListener('online', function onlineHandler() {
+        window.removeEventListener('online', onlineHandler);
+        setTimeout(initializeWebSocket, 1000);
+      });
+      return;
+    }
+
     // Close existing connection if any
     if (ws) {
       if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
         secureLog.info('Closing existing WebSocket connection');
-        ws.close();
+        try {
+          ws.close();
+        } catch (closeError) {
+          secureLog.error('Error closing existing connection:', closeError);
+        }
       }
       ws = null;
+      window.ws = null;
     }
 
     // Clear any pending reconnect
@@ -408,7 +476,11 @@ function initializeWebSocket() {
     const connectionTimeout = setTimeout(() => {
       if (ws && ws.readyState === WebSocket.CONNECTING) {
         secureLog.warn('WebSocket connection timeout');
-        ws.close();
+        try {
+          ws.close();
+        } catch (e) {
+          // Ignore close errors
+        }
         isConnecting = false;
         
         // Try to reconnect
@@ -433,15 +505,19 @@ function initializeWebSocket() {
         WS_FALLBACK.pollingTimeout = null;
       }
       
-      // Send initial ping instead of heartbeat
-      try {
-        ws.send(JSON.stringify({ 
-          type: 'ping',
-          timestamp: Date.now()
-        }));
-      } catch (sendError) {
-        secureLog.error('Failed to send initial ping', { error: sendError.message });
-      }
+      // Send initial ping instead of heartbeat (deferred to avoid overwhelming browser)
+      setTimeout(() => {
+        try {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ 
+              type: 'ping',
+              timestamp: Date.now()
+            }));
+          }
+        } catch (sendError) {
+          secureLog.error('Failed to send initial ping', { error: sendError.message });
+        }
+      }, 500);
     };
 
     ws.onclose = async (event) => {
@@ -500,19 +576,35 @@ function initializeWebSocket() {
       });
       isConnecting = false;
     };
-
+    
+    // Handling messages is moved to a separate function to avoid overwhelming the browser
     ws.onmessage = (event) => {
       try {
-        const message = JSON.parse(event.data);
-        handleWebSocketMessage(message);
+        // Use requestAnimationFrame to handle the message on the next frame
+        // This prevents blocking the main thread and improves UI responsiveness
+        window.requestAnimationFrame(() => {
+          try {
+            if (typeof event.data === 'string') {
+              const message = JSON.parse(event.data);
+              handleWebSocketMessage(message);
+            }
+          } catch (parseError) {
+            secureLog.error('Error parsing WebSocket message', {
+              error: parseError.message
+            });
+          }
+        });
       } catch (error) {
-        secureLog.error('WebSocket message parsing error', { error: error.message });
+        secureLog.error('Error in WebSocket message handler', {
+          error: error.message
+        });
       }
     };
   } catch (error) {
-    secureLog.error('WebSocket initialization error', { error: error.message });
+    secureLog.error('Error initializing WebSocket', {
+      error: error.message
+    });
     isConnecting = false;
-    enableFallbackMechanism();
   }
 }
 
@@ -570,54 +662,99 @@ if (browserAuth.getUser()) {
   initializeWebSocket();
 }
 
-// Handle incoming WebSocket messages
+// Optimize WebSocket message handling to prevent performance issues
 const handleWebSocketMessage = (message) => {
   try {
-    // Handle authentication errors in WebSocket messages
-    if (message.type === 'error' && message.error?.includes('jwt expired')) {
-      handleTokenExpiration('expired');
+    // Skip if message is empty or invalid
+    if (!message || typeof message !== 'object') {
       return;
     }
-
-    // Handle heartbeat responses
-    if (message.type === 'heartbeat') {
-      return;
-    }
-
-    // Handle entity updates
+    
+    // Handle message based on type
     switch (message.type) {
-      case 'company_created':
-      case 'company_updated':
-      case 'company_deleted':
-        invalidateCache('companies');
-        window.dispatchEvent(new CustomEvent('company_update', { 
-          detail: { type: message.type, data: message.data }
-        }));
+      case 'ping':
+      case 'pong':
+        // Simple reply for heartbeat - lightweight operation
+        if (message.type === 'ping' && ws && ws.readyState === WebSocket.OPEN) {
+          try {
+            ws.send(JSON.stringify({
+              type: 'pong',
+              timestamp: Date.now(),
+              echo: message.timestamp
+            }));
+          } catch (sendError) {
+            // Non-critical, don't crash on heartbeat error
+            secureLog.error('Error sending pong response', { error: sendError.message });
+          }
+        }
         break;
         
-      case 'player_created':
-      case 'player_updated':
-      case 'player_deleted':
-        invalidateCache('players');
-        window.dispatchEvent(new CustomEvent('player_update', { 
-          detail: { type: message.type, data: message.data }
-        }));
+      case 'auth_success':
+        // Authentication successful, nothing special to do
+        secureLog.info('WebSocket authentication successful');
         break;
         
-      case 'user_created':
-      case 'user_updated':
-      case 'user_deleted':
-        invalidateCache('users');
-        window.dispatchEvent(new CustomEvent('user_update', { 
-          detail: { type: message.type, data: message.data }
-        }));
+      case 'auth_error':
+        // Handle authentication error
+        secureLog.warn('WebSocket authentication error:', message.error);
+        if (message.clearSession) {
+          handleTokenExpiration('ws_auth_error');
+        }
+        break;
+        
+      case 'update':
+        // Handle data updates - use lightweight processing
+        // Defer to requestIdleCallback/setTimeout for non-critical updates
+        if (typeof window.requestIdleCallback === 'function') {
+          window.requestIdleCallback(() => processUpdateMessage(message), { timeout: 2000 });
+        } else {
+          setTimeout(() => processUpdateMessage(message), 50);
+        }
+        break;
+        
+      case 'token_expired':
+        // Handle token expiration notification from server
+        handleTokenExpiration('server_notification');
         break;
         
       default:
-        secureLog.warn('Unknown WebSocket message type', { type: message.type });
+        // Ignore unknown message types
+        secureLog.info('Unknown WebSocket message type:', message.type);
     }
   } catch (error) {
-    secureLog.error('WebSocket message handling error', { error: error.message });
+    secureLog.error('Error handling WebSocket message:', error);
+  }
+};
+
+// Process update messages separately to avoid blocking the main thread
+const processUpdateMessage = (message) => {
+  try {
+    if (!message.entity || !message.action) {
+      return;
+    }
+    
+    // Handle different types of updates
+    switch (message.entity) {
+      case 'player':
+        // Update player cache
+        invalidateCache('players');
+        window.dispatchEvent(new CustomEvent('player_update', { detail: message }));
+        break;
+        
+      case 'user':
+        // Update user cache
+        invalidateCache('users');
+        window.dispatchEvent(new CustomEvent('user_update', { detail: message }));
+        break;
+        
+      case 'company':
+        // Update company cache
+        invalidateCache('companies');
+        window.dispatchEvent(new CustomEvent('company_update', { detail: message }));
+        break;
+    }
+  } catch (error) {
+    secureLog.error('Error processing update message:', error);
   }
 };
 
@@ -1141,8 +1278,16 @@ const userAPI = {
 const authAPI = {
   login: async (credentials) => {
     try {
-      secureLog.info('Login attempt initiated');
+      console.log('Login attempt with:', credentials.email);
       
+      // Make sure we have valid credentials
+      if (!credentials.email || !credentials.password) {
+        return { 
+          error: 'Email and password are required', 
+          data: null 
+        };
+      }
+
       const response = await fetch(`${API_URL}/auth/login`, {
         method: 'POST',
         headers: {
@@ -1151,25 +1296,38 @@ const authAPI = {
         body: JSON.stringify(credentials)
       });
 
+      // Parse the response data
+      const data = await response.json();
+      
+      // Handle non-200 responses
       if (!response.ok) {
-        const errorData = await response.json();
-        secureLog.warn('Login failed:', errorData);
-        return { error: errorData.message || `Login failed: ${response.status}` };
+        console.error('Login failed:', response.status, data.error || 'Unknown error');
+        return { 
+          error: data.error || `Login failed: ${response.status}`,
+          data: null
+        };
       }
 
-      const result = await response.json();
-      
-      if (result.token && result.user) {
+      // For successful login containing token and user
+      if (data.token && data.user) {
         try {
+          // Prevent multiple parallel initializations
+          if (window._initializing) {
+            console.warn('Login: Initialization already in progress, skipping duplicate');
+            return { data: data, error: null };
+          }
+          
+          window._initializing = true;
+          
           // First clear any existing connections
-          // Close WebSocket connection first
           if (ws) {
             try {
               ws.close();
             } catch (e) {
-              secureLog.error('Error closing WebSocket during login:', e);
+              console.error('Error closing WebSocket during login:', e);
             }
             ws = null;
+            window.ws = null;
           }
           
           // Clear any reconnection attempts
@@ -1178,61 +1336,71 @@ const authAPI = {
             reconnectTimeout = null;
           }
           
-          // Clear any existing sessions
+          // Clean up any existing sessions
           if (activityCheckInterval) {
             clearInterval(activityCheckInterval);
             activityCheckInterval = null;
           }
           
+          // Clean up listeners
           cleanupActivityListeners();
           
           // Clear the connection attempts counter
           reconnectAttempts = 0;
           
-          // Set authentication details immediately with proper error handling
+          // Set authentication details
           try {
-            // Set authentication details
-            browserAuth.setAuth(result.token, result.refreshToken || null, result.user);
-            secureLog.info('Login successful', { userId: result.user.id });
+            // Save the authentication data
+            console.log('Setting auth with token and user info');
+            browserAuth.setAuth(data.token, data.refreshToken, data.user);
             
-            // Pre-cache essential user data for offline access
-            // This makes dashboard loading more reliable
-            localStorage.setItem('company_id', result.user.company_id || '');
-            localStorage.setItem('user_role', result.user.role || '');
+            // Store essential user data as backup
+            localStorage.setItem('company_id', data.user.company_id || '');
+            localStorage.setItem('user_role', data.user.role || '');
+            
+            // Delay WebSocket initialization to improve performance
+            setTimeout(() => {
+              try {
+                setupActivityListeners();
+                initializeSession();
+                
+                // Delayed WebSocket initialization
+                setTimeout(() => {
+                  try {
+                    initializeWebSocket();
+                  } catch (error) {
+                    console.error('WebSocket init error:', error);
+                  } finally {
+                    window._initializing = false;
+                  }
+                }, 1500);
+              } catch (error) {
+                console.error('Session init error:', error);
+                window._initializing = false;
+              }
+            }, 500);
+            
+            return { data: data, error: null };
           } catch (authError) {
-            secureLog.error('Error setting authentication:', authError);
+            console.error('Error setting authentication:', authError);
+            window._initializing = false;
+            return { data: null, error: 'Authentication storage error' };
           }
-          
-          // Initialize session in the background with a delay to prevent UI freezing
-          setTimeout(() => {
-            try {
-              // Initialize token monitoring
-              initializeSession();
-              
-              // Start WebSocket with sufficient delay
-              setTimeout(() => {
-                try {
-                  initializeWebSocket();
-                } catch (wsError) {
-                  secureLog.error('Error initializing WebSocket on login:', wsError);
-                  // Continue anyway - WebSocket isn't critical for core functionality
-                }
-              }, 1500);
-            } catch (sessionError) {
-              secureLog.error('Error initializing session:', sessionError);
-              // Don't fail the login process for session initialization errors
-            }
-          }, 500);
-        } catch (setupError) {
-          secureLog.error('Error in post-login setup:', setupError);
-          // We still want to complete login even if there's an error in the setup
+        } catch (error) {
+          console.error('Login initialization error:', error);
+          window._initializing = false;
+          return { data: null, error: 'Login initialization failed' };
         }
       }
-
-      return { data: result, error: null };
+      
+      // For 2FA requirement or other valid responses
+      return { data: data, error: null };
     } catch (error) {
-      secureLog.error('Login error:', error);
-      return { error: error.message || 'Failed to login' };
+      console.error('Login request failed:', error);
+      if (window._initializing) {
+        window._initializing = false;
+      }
+      return { data: null, error: error.message || 'Network error during login' };
     }
   },
   
@@ -1856,5 +2024,6 @@ module.exports = {
   playerAPI,
   userAPI,
   authAPI,
-  invalidateCaches
+  invalidateCaches,
+  browserAuth: null   // Import separately from utils/browserUtils.js
 };

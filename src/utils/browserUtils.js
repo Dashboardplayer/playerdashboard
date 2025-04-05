@@ -8,26 +8,36 @@ export const browserAuth = {
       // Store tokens
       localStorage.setItem('accessToken', accessToken);
       
-      // Store refresh token if provided
-      if (refreshToken) {
-        localStorage.setItem('refreshToken', refreshToken);
-      }
-      
-      // If the second parameter is an object, it's the user (backward compatibility)
+      // If the second parameter is an object and no third parameter, it's the user (backward compatibility)
       let userData;
       if (typeof refreshToken === 'object' && !user) {
         userData = {
           ...refreshToken,
           token: accessToken // Keep token in user object for backward compatibility
         };
+        // For backward compatibility, don't store refreshToken in this case
       } else {
+        // Store refresh token if provided as string
+        if (refreshToken && typeof refreshToken === 'string') {
+          localStorage.setItem('refreshToken', refreshToken);
+        }
+        
+        // User data comes from third parameter
         userData = {
           ...user,
           token: accessToken // Keep token in user object for backward compatibility
         };
       }
       
+      // First update local storage
       localStorage.setItem('user', JSON.stringify(userData));
+      
+      // Then trigger a storage event for cross-tab communication
+      // This fixes an issue where the dashboard crashes on first login
+      window.dispatchEvent(new StorageEvent('storage', {
+        key: 'user',
+        newValue: JSON.stringify(userData)
+      }));
     }
   },
   
@@ -37,6 +47,13 @@ export const browserAuth = {
       localStorage.removeItem('accessToken');
       localStorage.removeItem('refreshToken');
       localStorage.removeItem('user');
+      
+      // Dispatch a storage event to notify other tabs
+      window.dispatchEvent(new StorageEvent('storage', {
+        key: 'user',
+        oldValue: localStorage.getItem('user'),
+        newValue: null
+      }));
     }
   },
   
