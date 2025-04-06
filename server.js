@@ -2317,6 +2317,13 @@ v1Routes.post('/auth/refresh-token', async (req, res) => {
 app.use('/api', v1Routes);
 app.use('/api/v1', v1Routes); // Explicitly support v1
 
+// Health check endpoint - not rate limited
+app.get('/api/ping', (req, res) => {
+  res.status(200).send('pong');
+});
+
+// Auth endpoints with stricter rate limiting
+
 // Start the server
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);

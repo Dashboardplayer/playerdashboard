@@ -66,7 +66,7 @@ const updateLastActivity = () => {
 };
 
 // Use debounced handler to prevent excessive updates
-const updateActivity = () => {
+  const updateActivity = () => {
   // Only update if not updated in the last second to reduce overhead
   const now = Date.now();
   if (now - lastActivityTimestamp > 1000) {
@@ -326,16 +326,16 @@ const startTokenExpirationChecker = () => {
       
       lastCheckTime = now;
       
-      const user = browserAuth.getUser();
-      if (!user?.token) return;
-      
+    const user = browserAuth.getUser();
+    if (!user?.token) return;
+    
       const inactiveTime = now - lastActivityTimestamp;
-      
+    
       // Only check for expiration if user has been inactive or if we're approaching token expiry
-      if (inactiveTime >= INACTIVITY_TIMEOUT) {
-        if (isTokenExpired(user.token)) {
-          handleTokenExpiration('inactivity');
-        }
+    if (inactiveTime >= INACTIVITY_TIMEOUT) {
+      if (isTokenExpired(user.token)) {
+        handleTokenExpiration('inactivity');
+      }
       }
     } catch (error) {
       secureLog.error('Error in token expiration check:', error);
@@ -347,13 +347,13 @@ const startTokenExpirationChecker = () => {
   
   // Clean up on page unload to prevent memory leaks
   if (typeof window !== 'undefined') {
-    window.addEventListener('unload', () => {
-      if (activityCheckInterval) {
-        clearInterval(activityCheckInterval);
+  window.addEventListener('unload', () => {
+    if (activityCheckInterval) {
+      clearInterval(activityCheckInterval);
         activityCheckInterval = null;
-      }
-      cleanupActivityListeners();
-    });
+    }
+    cleanupActivityListeners();
+  });
   }
 };
 
@@ -363,21 +363,49 @@ const initializeSession = () => {
 };
 
 // WebSocket connection
-const WS_URL = process.env.NODE_ENV === 'production' 
-  ? `wss://player-dashboard.onrender.com/api`
-  : 'ws://localhost:5001/api';
+const WS_URL = (() => {
+  try {
+    // Get the current hostname from the browser
+    const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
+    const protocol = typeof window !== 'undefined' ? window.location.protocol : '';
+    
+    // Log for debugging
+    console.log('Current hostname:', hostname);
+    console.log('Current protocol:', protocol);
+    
+    // Always use secure WebSockets with HTTPS, insecure with HTTP
+    const wsProtocol = protocol === 'https:' ? 'wss:' : 'ws:';
+    
+    // If we're on a production domain
+    if (hostname === 'player-dashboard.onrender.com' || hostname.includes('onrender.com')) {
+      return 'wss://player-dashboard.onrender.com/api';
+    }
+    
+    // If we're on localhost
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return 'ws://localhost:5001/api';
+    }
+    
+    // For any other domain, derive the WebSocket URL from the current location
+    return `${wsProtocol}//${hostname}/api`;
+  } catch (error) {
+    console.error('Error determining WebSocket URL:', error);
+    return 'ws://localhost:5001/api'; // Fallback to localhost
+  }
+})();
 
 // Fallback mechanism for WebSocket issues
 const WS_FALLBACK = {
   enabled: true,
   pollingInterval: 30000, // 30 seconds
-  pollingTimeout: null
+  pollingTimeout: null,
+  hasError: false // Track if there's a connection error
 };
 
 let ws = null;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 8; // Increased from 5
-const RECONNECT_DELAY = 2000; // Decreased to 2 seconds (was 3)
+const RECONNECT_DELAY = 5000; // Increased to 5 seconds (was 2)
 let reconnectTimeout = null;
 
 // Cache storage with timestamps
@@ -393,7 +421,7 @@ const CACHE_DURATION = 30 * 60 * 1000; // 30 minutes
 // Add connection state tracking
 let isConnecting = false;
 let lastConnectionAttempt = 0;
-const MIN_RECONNECT_DELAY = 5000; // Minimum 5 seconds between connection attempts
+const MIN_RECONNECT_DELAY = 10000; // Increased to 10 seconds (was 5)
 
 // Initialize WebSocket connection
 function initializeWebSocket() {
@@ -463,149 +491,223 @@ function initializeWebSocket() {
     const protocols = [`jwt.${user.token}`];
     
     try {
-      ws = new WebSocket(WS_URL, protocols);
-      window.ws = ws;
+      // Check if the server is available first by making a simple fetch request
+      // Construct the ping URL based on the same logic as WS_URL
+      const pingURL = (() => {
+        try {
+          const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
+          const protocol = typeof window !== 'undefined' ? window.location.protocol : '';
+          
+          // If we're on a production domain
+          if (hostname === 'player-dashboard.onrender.com' || hostname.includes('onrender.com')) {
+            return 'https://player-dashboard.onrender.com/api/ping';
+          }
+          
+          // If we're on localhost
+          if (hostname === 'localhost' || hostname === '127.0.0.1') {
+            return 'http://localhost:5001/api/ping';
+          }
+          
+          // For any other domain, derive the API URL from the current location
+          return `${protocol}//${hostname}/api/ping`;
+        } catch (error) {
+          console.error('Error determining ping URL:', error);
+          return `${API_URL}/ping`; // Fallback to API_URL
+        }
+      })();
+      
+      console.log('Attempting to ping server at:', pingURL);
+      
+      fetch(pingURL, { method: 'HEAD' })
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error(`Server returned ${response.status} ${response.statusText}`);
+          }
+          console.log('Server ping successful');
+          // If the server responds, try to connect via WebSocket
+          console.log('Initializing WebSocket connection to:', WS_URL);
+          ws = new WebSocket(WS_URL, protocols);
+          window.ws = ws;
+          
+          // Set up all WebSocket event handlers
+          setupWebSocketHandlers();
+        })
+        .catch(err => {
+          secureLog.warn('Server unavailable for WebSocket connection', { 
+            error: err.message,
+            pingURL,
+            wsURL: WS_URL 
+          });
+          isConnecting = false;
+          WS_FALLBACK.hasError = true;
+          enableFallbackMechanism();
+        });
     } catch (wsError) {
       secureLog.error('Failed to create WebSocket instance', { error: wsError.message });
       isConnecting = false;
+      WS_FALLBACK.hasError = true;
       enableFallbackMechanism();
       return;
     }
-    
-    // Add connection timeout
-    const connectionTimeout = setTimeout(() => {
-      if (ws && ws.readyState === WebSocket.CONNECTING) {
-        secureLog.warn('WebSocket connection timeout');
-        try {
-          ws.close();
-        } catch (e) {
-          // Ignore close errors
-        }
-        isConnecting = false;
-        
-        // Try to reconnect
-        if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-          reconnectAttempts++;
-          reconnectTimeout = setTimeout(initializeWebSocket, RECONNECT_DELAY * Math.pow(1.5, reconnectAttempts));
-        } else {
-          enableFallbackMechanism();
-        }
-      }
-    }, 10000); // 10 second connection timeout
-    
-    ws.onopen = () => {
-      clearTimeout(connectionTimeout);
-      secureLog.info('WebSocket connection established');
-      isConnecting = false;
-      reconnectAttempts = 0;
-      
-      // Disable fallback mechanism when WebSocket is working
-      if (WS_FALLBACK.pollingTimeout) {
-        clearTimeout(WS_FALLBACK.pollingTimeout);
-        WS_FALLBACK.pollingTimeout = null;
-      }
-      
-      // Send initial ping instead of heartbeat (deferred to avoid overwhelming browser)
-      setTimeout(() => {
-        try {
-          if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ 
-              type: 'ping',
-              timestamp: Date.now()
-            }));
-          }
-        } catch (sendError) {
-          secureLog.error('Failed to send initial ping', { error: sendError.message });
-        }
-      }, 500);
-    };
-
-    ws.onclose = async (event) => {
-      clearTimeout(connectionTimeout);
-      secureLog.info('WebSocket disconnected', { code: event.code });
-      
-      // Clear connection state
-      isConnecting = false;
-      ws = null;
-      window.ws = null;
-      
-      // Check if we have a valid token before attempting to reconnect
-      const currentUser = browserAuth.getUser();
-      
-      if (!currentUser || !currentUser.token) {
-        secureLog.warn('WebSocket reconnection failed: No valid session');
-        return;
-      }
-
-      // Handle authentication errors
-      if (event.code === 4401) {
-        secureLog.warn('WebSocket authentication failed, clearing session');
-        handleTokenExpiration('expired');
-        return;
-      }
-
-      // Only attempt reconnection if we haven't reached the maximum attempts
-      if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-        const delay = RECONNECT_DELAY * Math.pow(1.5, reconnectAttempts);
-        reconnectTimeout = setTimeout(() => {
-          reconnectAttempts++;
-          secureLog.info('Attempting WebSocket reconnection', { 
-            attempt: reconnectAttempts,
-            maxAttempts: MAX_RECONNECT_ATTEMPTS,
-            delay: delay
-          });
-          initializeWebSocket();
-        }, delay);
-      } else {
-        secureLog.warn('WebSocket max reconnection attempts reached');
-        // Enable fallback mechanism
-        enableFallbackMechanism();
-        
-        // Reset reconnection attempts after a longer delay
-        reconnectTimeout = setTimeout(() => {
-          reconnectAttempts = 0;
-          initializeWebSocket();
-        }, RECONNECT_DELAY * 10);
-      }
-    };
-
-    ws.onerror = (error) => {
-      secureLog.error('WebSocket error occurred', { 
-        message: error.message || 'Unknown WebSocket error',
-        readyState: ws?.readyState
-      });
-      isConnecting = false;
-    };
-    
-    // Handling messages is moved to a separate function to avoid overwhelming the browser
-    ws.onmessage = (event) => {
-      try {
-        // Use requestAnimationFrame to handle the message on the next frame
-        // This prevents blocking the main thread and improves UI responsiveness
-        window.requestAnimationFrame(() => {
-          try {
-            if (typeof event.data === 'string') {
-              const message = JSON.parse(event.data);
-              handleWebSocketMessage(message);
-            }
-          } catch (parseError) {
-            secureLog.error('Error parsing WebSocket message', {
-              error: parseError.message
-            });
-          }
-        });
-      } catch (error) {
-        secureLog.error('Error in WebSocket message handler', {
-          error: error.message
-        });
-      }
-    };
   } catch (error) {
     secureLog.error('Error initializing WebSocket', {
       error: error.message
     });
     isConnecting = false;
+    WS_FALLBACK.hasError = true;
   }
+}
+
+// Setup WebSocket event handlers
+function setupWebSocketHandlers() {
+  if (!ws) return;
+  
+  // Add connection timeout
+  const connectionTimeout = setTimeout(() => {
+    if (ws && ws.readyState === WebSocket.CONNECTING) {
+      secureLog.warn('WebSocket connection timeout');
+      try {
+        ws.close();
+      } catch (e) {
+        // Ignore close errors
+      }
+      isConnecting = false;
+      
+      // Try to reconnect
+      if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+        reconnectAttempts++;
+        reconnectTimeout = setTimeout(initializeWebSocket, RECONNECT_DELAY * Math.pow(1.5, reconnectAttempts));
+      } else {
+        WS_FALLBACK.hasError = true;
+        enableFallbackMechanism();
+      }
+    }
+  }, 10000); // 10 second connection timeout
+  
+  ws.onopen = () => {
+    clearTimeout(connectionTimeout);
+    secureLog.info('WebSocket connection established');
+    isConnecting = false;
+    reconnectAttempts = 0;
+    WS_FALLBACK.hasError = false;
+    
+    // Disable fallback mechanism when WebSocket is working
+    if (WS_FALLBACK.pollingTimeout) {
+      clearTimeout(WS_FALLBACK.pollingTimeout);
+      WS_FALLBACK.pollingTimeout = null;
+    }
+    
+    // Send initial ping instead of heartbeat (deferred to avoid overwhelming browser)
+    setTimeout(() => {
+      try {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ 
+            type: 'ping',
+            timestamp: Date.now()
+          }));
+        }
+      } catch (sendError) {
+        secureLog.error('Failed to send initial ping', { error: sendError.message });
+      }
+    }, 500);
+  };
+
+  ws.onclose = async (event) => {
+    clearTimeout(connectionTimeout);
+    secureLog.info('WebSocket disconnected', { code: event.code });
+    
+    // Clear connection state
+    isConnecting = false;
+    ws = null;
+    window.ws = null;
+    
+    // Check if we have a valid token before attempting to reconnect
+    const currentUser = browserAuth.getUser();
+    
+    if (!currentUser || !currentUser.token) {
+      secureLog.warn('WebSocket reconnection failed: No valid session');
+      return;
+    }
+
+    // Handle authentication errors
+    if (event.code === 4401) {
+      secureLog.warn('WebSocket authentication failed, clearing session');
+      handleTokenExpiration('expired');
+      return;
+    }
+
+    // Only attempt reconnection if we haven't reached the maximum attempts
+    if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+      const delay = RECONNECT_DELAY * Math.pow(1.5, reconnectAttempts);
+      reconnectTimeout = setTimeout(() => {
+        reconnectAttempts++;
+        secureLog.info('Attempting WebSocket reconnection', { 
+          attempt: reconnectAttempts,
+          maxAttempts: MAX_RECONNECT_ATTEMPTS,
+          delay: delay
+        });
+        initializeWebSocket();
+      }, delay);
+    } else {
+      secureLog.warn('WebSocket max reconnection attempts reached');
+      // Enable fallback mechanism
+      WS_FALLBACK.hasError = true;
+      enableFallbackMechanism();
+      
+      // Reset reconnection attempts after a longer delay
+      reconnectTimeout = setTimeout(() => {
+        reconnectAttempts = 0;
+        initializeWebSocket();
+      }, RECONNECT_DELAY * 10);
+    }
+  };
+
+  ws.onerror = (error) => {
+    console.error('WebSocket error occurred:', {
+      message: error.message || 'Unknown WebSocket error',
+      readyState: ws?.readyState,
+      url: WS_URL
+    });
+    
+    secureLog.error('WebSocket error occurred', { 
+      message: error.message || 'Unknown WebSocket error',
+      readyState: ws?.readyState,
+      url: WS_URL,
+      connectionInfo: {
+        hostname: typeof window !== 'undefined' ? window.location.hostname : 'unknown',
+        protocol: typeof window !== 'undefined' ? window.location.protocol : 'unknown',
+        apiUrl: API_URL,
+        wsUrl: WS_URL,
+        isProduction: process.env.NODE_ENV === 'production'
+      }
+    });
+    isConnecting = false;
+    WS_FALLBACK.hasError = true;
+  };
+
+  // Handling messages is moved to a separate function to avoid overwhelming the browser
+  ws.onmessage = (event) => {
+    try {
+      // Use requestAnimationFrame to handle the message on the next frame
+      // This prevents blocking the main thread and improves UI responsiveness
+      window.requestAnimationFrame(() => {
+        try {
+          if (typeof event.data === 'string') {
+            const message = JSON.parse(event.data);
+            handleWebSocketMessage(message);
+          }
+        } catch (parseError) {
+          secureLog.error('Error parsing WebSocket message', {
+            error: parseError.message
+          });
+        }
+      });
+    } catch (error) {
+      secureLog.error('Error in WebSocket message handler', {
+        error: error.message
+      });
+    }
+  };
 }
 
 // Add fallback polling mechanism when WebSocket fails
@@ -630,7 +732,8 @@ function enableFallbackMechanism() {
       // poll your API endpoints for updates
       
       // Try to reinitialize WebSocket connection occasionally
-      if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+      // But only if we're not in a known error state
+      if (!WS_FALLBACK.hasError && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
         initializeWebSocket();
       }
       
@@ -669,7 +772,7 @@ const handleWebSocketMessage = (message) => {
     if (!message || typeof message !== 'object') {
       return;
     }
-    
+
     // Handle message based on type
     switch (message.type) {
       case 'ping':
@@ -1287,7 +1390,7 @@ const authAPI = {
           data: null 
         };
       }
-
+      
       const response = await fetch(`${API_URL}/auth/login`, {
         method: 'POST',
         headers: {
@@ -1348,7 +1451,7 @@ const authAPI = {
           // Clear the connection attempts counter
           reconnectAttempts = 0;
           
-          // Set authentication details
+            // Set authentication details
           try {
             // Save the authentication data
             console.log('Setting auth with token and user info');
@@ -1359,26 +1462,27 @@ const authAPI = {
             localStorage.setItem('user_role', data.user.role || '');
             
             // Delay WebSocket initialization to improve performance
-            setTimeout(() => {
-              try {
+          setTimeout(() => {
+            try {
                 setupActivityListeners();
-                initializeSession();
-                
+              initializeSession();
+              
                 // Delayed WebSocket initialization
-                setTimeout(() => {
-                  try {
-                    initializeWebSocket();
+              setTimeout(() => {
+                try {
+                  console.log('Delayed WebSocket initialization after login');
+                  initializeWebSocket();
                   } catch (error) {
                     console.error('WebSocket init error:', error);
                   } finally {
                     window._initializing = false;
-                  }
-                }, 1500);
+                }
+              }, 3000);
               } catch (error) {
                 console.error('Session init error:', error);
                 window._initializing = false;
-              }
-            }, 500);
+            }
+          }, 500);
             
             return { data: data, error: null };
           } catch (authError) {
