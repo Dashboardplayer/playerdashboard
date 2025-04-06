@@ -426,19 +426,19 @@ const WS_URL = (() => {
     
     // If we're on a production domain
     if (hostname === 'player-dashboard.onrender.com' || hostname.includes('onrender.com')) {
-      return 'wss://player-dashboard.onrender.com/api';
+      return 'wss://player-dashboard.onrender.com/socket';
     }
     
     // If we're on localhost
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
-      return 'ws://localhost:5001/api';
+      return 'ws://localhost:5001/socket';
     }
     
     // For any other domain, derive the WebSocket URL from the current location
-    return `${wsProtocol}//${hostname}/api`;
+    return `${wsProtocol}//${hostname}/socket`;
   } catch (error) {
     console.error('Error determining WebSocket URL:', error);
-    return 'ws://localhost:5001/api'; // Fallback to localhost
+    return 'ws://localhost:5001/socket'; // Fallback to localhost
   }
 })();
 
@@ -486,6 +486,9 @@ function initializeWebSocket() {
         clearTimeout(reconnectTimeout);
         reconnectTimeout = null;
       }
+      
+      // Enable fallback polling immediately if no auth
+      enableFallbackMechanism();
       return;
     }
 
@@ -613,11 +616,18 @@ function initializeWebSocket() {
           console.log('Server ping successful');
           // If the server responds, try to connect via WebSocket
           console.log('Initializing WebSocket connection to:', WS_URL);
-          ws = new WebSocket(WS_URL, protocols);
-          window.ws = ws;
-          
-          // Set up all WebSocket event handlers
-          setupWebSocketHandlers();
+          try {
+            ws = new WebSocket(WS_URL, protocols);
+            window.ws = ws;
+            
+            // Set up all WebSocket event handlers
+            setupWebSocketHandlers();
+          } catch (wsInitError) {
+            console.error('Error during WebSocket initialization:', wsInitError);
+            isConnecting = false;
+            WS_FALLBACK.hasError = true;
+            enableFallbackMechanism();
+          }
         })
         .catch(err => {
           secureLog.warn('Server unavailable for WebSocket connection', { 
@@ -635,6 +645,15 @@ function initializeWebSocket() {
       WS_FALLBACK.hasError = true;
       enableFallbackMechanism();
       return;
+    }
+
+    // Setup timeout to enable fallback polling after a short delay if WebSocket keeps failing
+    if (!WS_FALLBACK.pollingTimeout && reconnectAttempts > 1) {
+      setTimeout(() => {
+        if (ws?.readyState !== WebSocket.OPEN) {
+          enableFallbackMechanism();
+        }
+      }, 3000);
     }
   } catch (error) {
     secureLog.error('Error initializing WebSocket', {
@@ -803,7 +822,7 @@ function enableFallbackMechanism() {
     return;
   }
   
-  secureLog.info('Enabling fallback polling mechanism');
+  secureLog.info('Enabling fallback polling mechanism - will use HTTP instead of WebSockets');
   
   const pollForUpdates = async () => {
     try {
@@ -817,8 +836,36 @@ function enableFallbackMechanism() {
       }
       
       // Poll for updates of different entity types
-      // This is a simplified version - in a real implementation you would
-      // poll your API endpoints for updates
+      try {
+        console.log('Polling for updates using HTTP (WebSocket fallback)');
+        
+        // Poll for players
+        const playersResponse = await fetch(`${API_URL}/players`, {
+          headers: {
+            'Authorization': `Bearer ${user.token}`,
+            'X-Poll-Type': 'websocket-fallback'
+          }
+        });
+        
+        if (playersResponse.ok) {
+          const players = await playersResponse.json();
+          // Update the cache
+          cache.players = {
+            data: players,
+            timestamp: Date.now()
+          };
+          
+          // Trigger update event
+          window.dispatchEvent(new CustomEvent('player_update', { 
+            detail: { 
+              action: 'poll',
+              data: players
+            }
+          }));
+        }
+      } catch (pollError) {
+        console.error('Error during fallback polling:', pollError);
+      }
       
       // Try to reinitialize WebSocket connection occasionally
       // But only if we're not in a known error state
