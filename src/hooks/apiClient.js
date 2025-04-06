@@ -376,9 +376,38 @@ const startTokenExpirationChecker = () => {
   }
 };
 
-// Initialize token checker when user logs in
+// Update initializeSession to properly set up and initialize WebSocket
 const initializeSession = () => {
-  startTokenExpirationChecker();
+  try {
+    const user = browserAuth.getUser();
+    
+    // Only initialize if we have a valid user and token
+    if (!user || !user.token) {
+      secureLog.warn('Session initialization failed: No valid user or token');
+      return;
+    }
+
+    // Set up activity listeners for session management
+    setupActivityListeners();
+    
+    // Start token expiration checker
+    startTokenExpirationChecker();
+    
+    // Add a short delay before initializing WebSocket to ensure 
+    // the token is properly loaded and the UI is responsive
+    setTimeout(() => {
+      // Ensure we still have a valid token before initializing WebSocket
+      const currentUser = browserAuth.getUser();
+      if (currentUser && currentUser.token) {
+        initializeWebSocket();
+      }
+    }, 1000);
+
+    return true;
+  } catch (error) {
+    secureLog.error('Error initializing session:', { error: error.message });
+    return false;
+  }
 };
 
 // WebSocket connection
@@ -520,7 +549,9 @@ function initializeWebSocket() {
     lastConnectionAttempt = now;
 
     // Create WebSocket with authentication token in protocol
-    const protocols = [`jwt.${user.token}`];
+    // Ensure token is a string to prevent protocol errors like 'jwt.[object Object]'
+    const userToken = typeof user.token === 'string' ? user.token : JSON.stringify(user.token);
+    const protocols = [`jwt.${userToken}`];
     
     try {
       // Check if the server is available first by making a simple fetch request
@@ -1624,8 +1655,10 @@ const authAPI = {
           
           // Set authentication details immediately with proper error handling
           try {
+            // Ensure token is a string before saving
+            const tokenString = typeof result.token === 'string' ? result.token : JSON.stringify(result.token);
             // Set authentication details
-            browserAuth.setAuth(result.token, result.refreshToken || null, result.user);
+            browserAuth.setAuth(tokenString, result.refreshToken || null, result.user);
             secureLog.info('Registration completed successfully', { userId: result.user.id });
             
             // Pre-cache essential user data for offline access

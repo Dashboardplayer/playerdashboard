@@ -149,8 +149,18 @@ function SignUp() {
       // Clear registration token after successful registration
       localStorage.removeItem(REGISTRATION_TOKEN_KEY);
       
-      // Registration successful, redirect to login
-      navigate('/login');
+      // Instead of redirecting to login, check if we have auth data and go directly to dashboard
+      if (data.token && data.user) {
+        // Redirect to the appropriate dashboard based on user role
+        if (data.user.role === 'superadmin') {
+          navigate('/superadmin-dashboard');
+        } else {
+          navigate('/company-dashboard');
+        }
+      } else {
+        // If for some reason we don't have user data, fall back to login
+        navigate('/login');
+      }
     } catch (err) {
       console.error('Unexpected error:', err);
       setError('Er is een onverwachte fout opgetreden.');
