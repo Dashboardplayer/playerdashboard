@@ -235,65 +235,9 @@ app.use((req, res, next) => {
 // Create HTTP server
 const server = http.createServer(app);
 
-// Handle WebSocket authentication
-const authenticateWSConnection = (req, callback) => {
-  try {
-    let token = null;
-    
-    // Extract token from Sec-WebSocket-Protocol header
-    const protocols = req.headers['sec-websocket-protocol'];
-    if (protocols) {
-      const jwtProtocol = protocols.split(', ').find(p => p.startsWith('jwt.'));
-      if (jwtProtocol) {
-        token = jwtProtocol.substring(4); // Remove 'jwt.' prefix
-      }
-    }
-    
-    if (!token) {
-      console.log('WebSocket connection rejected: No token provided');
-      callback(new Error('Unauthorized'));
-      return;
-    }
-    
-    try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET, {
-        algorithms: ['HS256'],
-        audience: 'player-dashboard-api',
-        issuer: 'player-dashboard'
-      });
-
-      if (!decoded.sub || !decoded.email || !decoded.role) {
-        console.log('WebSocket token missing required claims');
-        callback(new Error('Invalid token format'));
-        return;
-      }
-
-      req.user = {
-        id: decoded.sub,
-        email: decoded.email,
-        role: decoded.role,
-        company_id: decoded.company_id
-      };
-      
-      console.log('WebSocket authenticated for user:', { email: decoded.email });
-      callback(null);
-    } catch (error) {
-      console.log('WebSocket token verification failed:', error.message);
-      callback(new Error('Invalid token'));
-    }
-  } catch (error) {
-    console.error('WebSocket authentication error:', error);
-    callback(new Error('Authentication failed'));
-  }
-};
-
 // Create WebSocket server with secure configuration
 const wss = new WebSocketServer({
-  server, // Use the main HTTP server
-  verifyClient: (info, callback) => {
-    authenticateWSConnection(info.req, callback);
-  },
-  clientTracking: true,
+  noServer: true, // Use noServer option instead of directly attaching to the server
   perMessageDeflate: {
     zlibDeflateOptions: {
       chunkSize: 1024,
@@ -303,9 +247,94 @@ const wss = new WebSocketServer({
     zlibInflateOptions: {
       chunkSize: 10 * 1024
     },
-    // Don't compress small messages
-    threshold: 1024
+    threshold: 1024 // Only compress messages larger than this
   }
+});
+
+// Handle upgrade requests manually
+server.on('upgrade', function upgrade(request, socket, head) {
+  console.log('WebSocket upgrade request received', request.url);
+  
+  // Only handle requests to /api
+  if (request.url !== '/api') {
+    console.log('WebSocket connection rejected: Invalid path', request.url);
+    socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
+    socket.destroy();
+    return;
+  }
+  
+  try {
+    // Extract token from Sec-WebSocket-Protocol header
+    let token = null;
+    const protocols = request.headers['sec-websocket-protocol'];
+    
+    if (protocols) {
+      const jwtProtocol = protocols.split(', ').find(p => p.startsWith('jwt.'));
+      if (jwtProtocol) {
+        token = jwtProtocol.substring(4); // Remove 'jwt.' prefix
+        console.log('Token found in protocol (truncated):', token.substring(0, 15) + '...');
+      }
+    }
+    
+    if (!token) {
+      console.log('WebSocket connection rejected: No token provided');
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+    
+    // Verify token
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET, {
+        algorithms: ['HS256'],
+        audience: 'player-dashboard-api',
+        issuer: 'player-dashboard'
+      });
+      
+      if (!decoded.sub || !decoded.email || !decoded.role) {
+        console.log('WebSocket token missing required claims');
+        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+      
+      // Store user info for later use
+      request.user = {
+        id: decoded.sub,
+        email: decoded.email,
+        role: decoded.role,
+        company_id: decoded.company_id
+      };
+      
+      console.log('WebSocket authenticated for user:', { email: decoded.email });
+      
+      // Upgrade the connection
+      wss.handleUpgrade(request, socket, head, function done(ws) {
+        // Attach user info to the WebSocket
+        ws.user = request.user;
+        
+        // Emit connection event
+        wss.emit('connection', ws, request);
+      });
+    } catch (error) {
+      console.log('WebSocket token verification failed:', error.message);
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+      socket.destroy();
+    }
+  } catch (error) {
+    console.error('WebSocket upgrade error:', error);
+    socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n');
+    socket.destroy();
+  }
+});
+
+// Log all WebSocket server events for debugging
+wss.on('listening', () => {
+  console.log('WebSocket server is listening');
+});
+
+wss.on('error', (error) => {
+  console.error('WebSocket server error:', error);
 });
 
 // PING configuration to detect dead connections

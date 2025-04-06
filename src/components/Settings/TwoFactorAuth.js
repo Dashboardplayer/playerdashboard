@@ -33,6 +33,7 @@ function TwoFactorAuth() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [qrCode, setQrCode] = useState('');
+  const [secret, setSecret] = useState('');
   const [verificationCode, setVerificationCode] = useState('');
   const [setupDialogOpen, setSetupDialogOpen] = useState(false);
   const [disableDialogOpen, setDisableDialogOpen] = useState(false);
@@ -54,7 +55,7 @@ function TwoFactorAuth() {
         });
       }
     } catch (err) {
-      console.error('Error fetching 2FA status:', err);
+      console.error('Error fetching 2FA status - network or request failure');
       setError('Error fetching 2FA status');
     }
   };
@@ -63,28 +64,34 @@ function TwoFactorAuth() {
     setLoading(true);
     setError('');
     setSuccess('');
-    setQrCode(''); // Reset QR code first
+    setQrCode('');
+    setSecret('');
 
     try {
       const response = await authAPI.generate2FASecret();
-      console.log('2FA setup response:', response);
+      // Log success without sensitive data
+      console.log('2FA setup response received', {
+        success: !response.error,
+        hasData: !!response.data 
+      });
 
       if (response.error) {
         setError(response.error);
         return;
       }
 
-      if (!response.data?.qrCode) {
-        console.error('Invalid response from server:', response);
-        setError('QR code niet ontvangen van de server');
+      if (!response.data?.qrCode || !response.data?.secret) {
+        console.error('Invalid response from server - missing required fields');
+        setError('Incomplete response van de server');
         return;
       }
 
       setQrCode(response.data.qrCode);
+      setSecret(response.data.secret);
       setSetupDialogOpen(true);
       await fetchTwoFAStatus();
     } catch (err) {
-      console.error('Error setting up 2FA:', err);
+      console.error('Error setting up 2FA - network or request failure');
       setError('Error bij het instellen van 2FA');
     } finally {
       setLoading(false);
@@ -97,18 +104,25 @@ function TwoFactorAuth() {
       return;
     }
 
+    if (!secret) {
+      setError('Geen geheim beschikbaar, probeer opnieuw in te stellen');
+      return;
+    }
+
     setLoading(true);
     setError('');
     setSuccess('');
 
     try {
-      const response = await authAPI.verify2FASetup(verificationCode);
+      const response = await authAPI.verify2FASetup(verificationCode, secret);
+      
       if (response.error) {
         setError(response.error);
       } else {
         setSuccess('2FA is succesvol ingeschakeld');
         setSetupDialogOpen(false);
         setVerificationCode('');
+        setSecret('');
         await fetchTwoFAStatus();
       }
     } catch (err) {

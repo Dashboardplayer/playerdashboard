@@ -9,6 +9,7 @@ const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
 const TOKEN_EXPIRY_BUFFER = 60000; // 1 minute buffer
 const INACTIVITY_TIMEOUT = 10 * 60 * 1000; // 10 minutes in milliseconds
 const TOKEN_CHECK_INTERVAL = 30000; // Check token every 30 seconds
+const REGISTRATION_TOKEN_KEY = 'registration_token'; // Add the missing constant
 
 // Helper function to get cached companies from localStorage
 const getCachedCompanies = () => {
@@ -313,11 +314,38 @@ const fetchWithAuth = async (endpoint, options = {}) => {
 // Token expiration and cache management
 const clearAllCache = () => {
   secureLog.info('Clearing application cache');
+  // Cached data
   localStorage.removeItem('cached_players');
   localStorage.removeItem('cached_users');
   localStorage.removeItem('cached_companies');
   localStorage.removeItem('api_users');
   localStorage.removeItem('mock_user');
+  
+  // User information
+  localStorage.removeItem('company_name');
+  localStorage.removeItem('company_id');
+  localStorage.removeItem('user_role');
+  
+  // Authentication tokens
+  localStorage.removeItem('authToken');
+  localStorage.removeItem('refreshToken');
+  localStorage.removeItem('accessToken');
+  localStorage.removeItem('token_expiry');
+  localStorage.removeItem('jwtToken');
+  
+  // Login-related information
+  localStorage.removeItem('loginAttempts');
+  localStorage.removeItem('lastLoginAttempt');
+  localStorage.removeItem('loginLockoutUntil');
+  localStorage.removeItem('currentLogin');
+  localStorage.removeItem('lastActive');
+  
+  // Registration
+  localStorage.removeItem(REGISTRATION_TOKEN_KEY);
+  
+  // Failed operations cache
+  localStorage.removeItem('failedEmails');
+  localStorage.removeItem('failedNotifications');
 };
 
 // Update startTokenExpirationChecker to be more precise
@@ -426,19 +454,19 @@ const WS_URL = (() => {
     
     // If we're on a production domain
     if (hostname === 'player-dashboard.onrender.com' || hostname.includes('onrender.com')) {
-      return 'wss://player-dashboard.onrender.com/socket';
+      return 'wss://player-dashboard.onrender.com/api';
     }
     
     // If we're on localhost
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
-      return 'ws://localhost:5001/socket';
+      return 'ws://localhost:5001/api';
     }
     
     // For any other domain, derive the WebSocket URL from the current location
-    return `${wsProtocol}//${hostname}/socket`;
+    return `${wsProtocol}//${hostname}/api`;
   } catch (error) {
     console.error('Error determining WebSocket URL:', error);
-    return 'ws://localhost:5001/socket'; // Fallback to localhost
+    return 'ws://localhost:5001/api'; // Fallback to localhost
   }
 })();
 
@@ -486,9 +514,6 @@ function initializeWebSocket() {
         clearTimeout(reconnectTimeout);
         reconnectTimeout = null;
       }
-      
-      // Enable fallback polling immediately if no auth
-      enableFallbackMechanism();
       return;
     }
 
@@ -614,16 +639,45 @@ function initializeWebSocket() {
             throw new Error(`Server returned ${response.status} ${response.statusText}`);
           }
           console.log('Server ping successful');
+          
           // If the server responds, try to connect via WebSocket
           console.log('Initializing WebSocket connection to:', WS_URL);
+          
           try {
+            // Create WebSocket with specified protocol
             ws = new WebSocket(WS_URL, protocols);
             window.ws = ws;
             
+            // Add more detailed connection monitoring
+            const connectionTimeout = setTimeout(() => {
+              if (ws && (ws.readyState === WebSocket.CONNECTING)) {
+                console.error('WebSocket connection timed out');
+                try {
+                  ws.close();
+                } catch (e) {
+                  // Ignore close errors
+                }
+                isConnecting = false;
+                WS_FALLBACK.hasError = true;
+                enableFallbackMechanism();
+              }
+            }, 15000); // 15 second timeout
+            
+            // Clear timeout when connection is established or fails
+            ws.onopen = () => {
+              clearTimeout(connectionTimeout);
+              // Rest of onopen handler will be set up in setupWebSocketHandlers
+            };
+            
+            ws.onerror = () => {
+              clearTimeout(connectionTimeout);
+              // Rest of onerror handler will be set up in setupWebSocketHandlers
+            };
+            
             // Set up all WebSocket event handlers
             setupWebSocketHandlers();
-          } catch (wsInitError) {
-            console.error('Error during WebSocket initialization:', wsInitError);
+          } catch (wsCreateError) {
+            console.error('Error creating WebSocket:', wsCreateError);
             isConnecting = false;
             WS_FALLBACK.hasError = true;
             enableFallbackMechanism();
@@ -646,15 +700,6 @@ function initializeWebSocket() {
       enableFallbackMechanism();
       return;
     }
-
-    // Setup timeout to enable fallback polling after a short delay if WebSocket keeps failing
-    if (!WS_FALLBACK.pollingTimeout && reconnectAttempts > 1) {
-      setTimeout(() => {
-        if (ws?.readyState !== WebSocket.OPEN) {
-          enableFallbackMechanism();
-        }
-      }, 3000);
-    }
   } catch (error) {
     secureLog.error('Error initializing WebSocket', {
       error: error.message
@@ -667,6 +712,10 @@ function initializeWebSocket() {
 // Setup WebSocket event handlers
 function setupWebSocketHandlers() {
   if (!ws) return;
+  
+  // Keep reference to any existing handlers
+  const existingOnOpen = ws.onopen;
+  const existingOnError = ws.onerror;
   
   // Add connection timeout
   const connectionTimeout = setTimeout(() => {
@@ -690,7 +739,12 @@ function setupWebSocketHandlers() {
     }
   }, 10000); // 10 second connection timeout
   
-  ws.onopen = () => {
+  ws.onopen = (event) => {
+    // Call existing onopen handler if any
+    if (typeof existingOnOpen === 'function') {
+      existingOnOpen(event);
+    }
+    
     clearTimeout(connectionTimeout);
     secureLog.info('WebSocket connection established');
     isConnecting = false;
@@ -769,6 +823,13 @@ function setupWebSocketHandlers() {
   };
 
   ws.onerror = (error) => {
+    // Call existing onerror handler if any
+    if (typeof existingOnError === 'function') {
+      existingOnError(error);
+    }
+    
+    clearTimeout(connectionTimeout);
+    
     console.error('WebSocket error occurred:', {
       message: error.message || 'Unknown WebSocket error',
       readyState: ws?.readyState,
@@ -822,7 +883,7 @@ function enableFallbackMechanism() {
     return;
   }
   
-  secureLog.info('Enabling fallback polling mechanism - will use HTTP instead of WebSockets');
+  secureLog.info('Enabling fallback polling mechanism');
   
   const pollForUpdates = async () => {
     try {
@@ -836,36 +897,8 @@ function enableFallbackMechanism() {
       }
       
       // Poll for updates of different entity types
-      try {
-        console.log('Polling for updates using HTTP (WebSocket fallback)');
-        
-        // Poll for players
-        const playersResponse = await fetch(`${API_URL}/players`, {
-          headers: {
-            'Authorization': `Bearer ${user.token}`,
-            'X-Poll-Type': 'websocket-fallback'
-          }
-        });
-        
-        if (playersResponse.ok) {
-          const players = await playersResponse.json();
-          // Update the cache
-          cache.players = {
-            data: players,
-            timestamp: Date.now()
-          };
-          
-          // Trigger update event
-          window.dispatchEvent(new CustomEvent('player_update', { 
-            detail: { 
-              action: 'poll',
-              data: players
-            }
-          }));
-        }
-      } catch (pollError) {
-        console.error('Error during fallback polling:', pollError);
-      }
+      // This is a simplified version - in a real implementation you would
+      // poll your API endpoints for updates
       
       // Try to reinitialize WebSocket connection occasionally
       // But only if we're not in a known error state
@@ -1143,32 +1176,33 @@ const companyAPI = {
 const playerAPI = {
   getAll: async (companyId = null) => {
     try {
-      const cacheKey = `players_${companyId || 'all'}`;
+      const user = browserAuth.getUser();
+      
+      if (!user || !user.token) {
+        secureLog.error('Authentication required for player data access');
+        throw new Error('Authentication required');
+      }
+
+      // Use the helper function to determine the effective company ID
+      const finalCompanyId = getEffectiveCompanyId(companyId);
+      
+      const cacheKey = `players_${finalCompanyId || 'all'}`;
       
       // Check cache validity first
       if (cache.players?.data && Date.now() - cache.players.timestamp < CACHE_DURATION) {
         secureLog.info('Using cached players data');
-        const filteredData = companyId
-          ? cache.players.data.filter(player => player.company_id === companyId)
+        // Always filter by finalCompanyId, even for cached data
+        const filteredData = finalCompanyId
+          ? cache.players.data.filter(player => player.company_id === finalCompanyId)
           : cache.players.data;
         return { data: filteredData, error: null };
       }
       
       // Use unique key for this request
-      const requestKey = `getPlayers_${companyId || 'all'}_${Date.now()}`;
+      const requestKey = `getPlayers_${finalCompanyId || 'all'}_${Date.now()}`;
       
       return debounce(requestKey, async () => {
-        const user = browserAuth.getUser();
-        
-        if (!user || !user.token) {
-          secureLog.error('Authentication required for player data access');
-          throw new Error('Authentication required');
-        }
-
-        // If user is not superadmin, force filter by their company_id
-        const finalCompanyId = user.role !== 'superadmin' ? user.company_id : companyId;
-
-        secureLog.info('Fetching player data');
+        secureLog.info('Fetching player data', { companyId: finalCompanyId || 'all' });
         const response = await fetch(`${API_URL}/players`, {
           headers: {
             'Authorization': `Bearer ${user.token}`
@@ -1192,7 +1226,12 @@ const playerAPI = {
           ? data.filter(player => player.company_id === finalCompanyId)
           : data;
 
-        secureLog.info('Players fetched successfully', { count: filteredData.length });
+        secureLog.info('Players fetched successfully', { 
+          count: filteredData.length,
+          userRole: user.role,
+          filteredByCompany: !!finalCompanyId
+        });
+        
         return { data: filteredData, error: null };
       }, 300);
     } catch (error) {
@@ -1352,32 +1391,34 @@ const playerAPI = {
 const userAPI = {
   getAll: async (companyId = null) => {
     try {
-      const cacheKey = `users_${companyId || 'all'}`;
+      const user = browserAuth.getUser();
+      
+      if (!user || !user.token) {
+        secureLog.error('No authentication token or user found');
+        throw new Error('Authentication required');
+      }
+
+      // Use the helper function to determine the effective company ID
+      const finalCompanyId = getEffectiveCompanyId(companyId);
+      
+      const cacheKey = `users_${finalCompanyId || 'all'}`;
       
       // Check cache validity first
       if (cache.users.data && Date.now() - cache.users.timestamp < CACHE_DURATION) {
         secureLog.info('Using cached users data');
-        const filteredData = companyId
-          ? cache.users.data.filter(user => user.company_id === companyId)
+        // Always filter by finalCompanyId, even for cached data
+        const filteredData = finalCompanyId
+          ? cache.users.data.filter(u => u.company_id === finalCompanyId)
           : cache.users.data;
         return { data: filteredData, error: null };
       }
       
       // Use unique key for this request
-      const requestKey = `getUsers_${companyId || 'all'}_${Date.now()}`;
+      const requestKey = `getUsers_${finalCompanyId || 'all'}_${Date.now()}`;
       
       return debounce(requestKey, async () => {
         try {
-          const user = browserAuth.getUser();
-          
-          if (!user || !user.token) {
-            secureLog.error('No authentication token or user found');
-            throw new Error('Authentication required');
-          }
-
-          // If user is not superadmin, force filter by their company_id
-          const finalCompanyId = user.role !== 'superadmin' ? user.company_id : companyId;
-
+          secureLog.info('Fetching users data', { companyId: finalCompanyId || 'all' });
           const response = await fetch(`${API_URL}/users`, {
             headers: {
               'Authorization': `Bearer ${user.token}`
@@ -1398,12 +1439,13 @@ const userAPI = {
           
           // Filter by company if needed
           const filteredData = finalCompanyId
-            ? data.filter(user => user.company_id === finalCompanyId)
+            ? data.filter(u => u.company_id === finalCompanyId)
             : data;
 
           secureLog.info('Users fetched successfully', {
             count: filteredData.length,
-            roles: filteredData.map(u => u.role)
+            userRole: user.role,
+            filteredByCompany: !!finalCompanyId
           });
 
           return { data: filteredData, error: null };
@@ -1827,6 +1869,15 @@ const authAPI = {
       reconnectTimeout = null;
     }
     
+    // Clear all cached data before clearing authentication
+    clearAllCache();
+    
+    // Clear in-memory cache as well
+    Object.keys(cache).forEach(key => {
+      cache[key].data = null;
+      cache[key].timestamp = null;
+    });
+    
     // Then clear authentication
     browserAuth.clearAuth();
     
@@ -2111,49 +2162,116 @@ const authAPI = {
   // 2FA Methods
   generate2FASecret: async () => {
     try {
-      const result = await fetchWithAuth('/auth/2fa/generate', {
-        method: 'POST'
-      });
-
-      if (result.error) {
-        return { error: result.error };
+      // First, ensure we have a valid user session
+      const user = browserAuth.getUser();
+      if (!user || !user.token) {
+        secureLog.error('Authentication required for 2FA setup');
+        return { error: 'Authentication required' };
       }
-
-      if (!result.data?.secret || !result.data?.qrCode) {
-        secureLog.error('Invalid 2FA secret response');
+      
+      // Make a direct fetch call instead of using fetchWithAuth to bypass any potential issues
+      const response = await fetch(`${API_URL}/auth/2fa/generate`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${user.token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        const statusText = response.statusText || `Status code: ${response.status}`;
+        secureLog.error(`2FA secret generation failed: ${statusText}`);
+        return { error: `Server error: ${statusText}` };
+      }
+      
+      const data = await response.json();
+      
+      // Log the raw response for debugging (using secureLog to hide sensitive data)
+      secureLog.debug('2FA secret response received', { 
+        hasSecret: !!data.secret,
+        hasQrCode: !!data.qrCode,
+        responseStatus: response.status
+      });
+      
+      if (!data || typeof data !== 'object') {
+        secureLog.error('Invalid response format for 2FA setup');
+        return { error: 'Invalid response format from server' };
+      }
+      
+      // Check for the expected properties in the response
+      if (!data.secret || !data.qrCode) {
+        secureLog.error('Missing required fields in 2FA setup response', { 
+          hasSecret: !!data.secret, 
+          hasQrCode: !!data.qrCode 
+        });
         return { error: 'Incomplete response from server' };
       }
-
+      
       secureLog.info('2FA secret generated successfully');
       return {
         data: {
-          secret: result.data.secret,
-          qrCode: result.data.qrCode
+          secret: data.secret,
+          qrCode: data.qrCode
         },
         error: null
       };
     } catch (error) {
-      secureLog.error('2FA secret generation error');
-      return { error: error.message };
+      secureLog.error('2FA secret generation error', { errorMessage: error.message });
+      return { error: error.message || 'Failed to generate 2FA secret' };
     }
   },
 
-  verify2FASetup: async (token) => {
+  verify2FASetup: async (code, secret) => {
     try {
-      const result = await fetchWithAuth('/auth/2fa/verify-setup', {
-        method: 'POST',
-        body: JSON.stringify({ token })
-      });
-
-      if (result.error) {
-        secureLog.warn('2FA setup verification failed');
-        return { error: result.error };
+      // Verify input parameters
+      if (!code || typeof code !== 'string') {
+        secureLog.error('Invalid 2FA verification code provided');
+        return { error: 'Invalid verification code' };
       }
-
-      secureLog.info('2FA setup verified successfully');
-      return result;
+      
+      // Ensure we have a valid user session
+      const user = browserAuth.getUser();
+      if (!user || !user.token) {
+        secureLog.error('Authentication required for 2FA verification');
+        return { error: 'Authentication required' };
+      }
+      
+      secureLog.info('Verifying 2FA setup', { codeLength: code.length });
+      
+      // Make direct fetch call to verify-setup endpoint
+      const response = await fetch(`${API_URL}/auth/2fa/verify-setup`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${user.token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          token: code // Server expects 'token', not 'code'
+        })
+      });
+      
+      // Handle response
+      if (!response.ok) {
+        const statusText = `${response.status}: ${response.statusText || 'Unknown error'}`;
+        secureLog.warn(`2FA verification failed: ${statusText}`);
+        return { error: 'Failed to verify 2FA setup' };
+      }
+      
+      const data = await response.json();
+      
+      // Check if the response indicates success
+      if (data && data.success === true) {
+        secureLog.info('2FA verification successful');
+        return { data: { success: true }, error: null };
+      } else {
+        secureLog.warn('2FA verification returned unexpected response', { 
+          success: false,
+          hasMessage: !!data.message
+        });
+        return { error: data.message || 'Invalid verification code' };
+      }
     } catch (error) {
-      secureLog.error('2FA setup verification error');
+      secureLog.error('2FA verification error', { errorMessage: error.message });
       return { error: 'Failed to verify 2FA setup' };
     }
   },
@@ -2186,48 +2304,118 @@ const authAPI = {
     }
   },
 
-  disable2FA: async (token) => {
+  disable2FA: async (code) => {
     try {
-      const result = await fetchWithAuth('/auth/2fa/disable', {
-        method: 'POST',
-        body: JSON.stringify({ token })
-      });
-
-      if (result.error) {
-        secureLog.warn('2FA disable failed');
-        return { error: result.error };
+      // Validate the code
+      if (!code || typeof code !== 'string') {
+        secureLog.error('Invalid 2FA code provided for disabling');
+        return { error: 'Invalid verification code' };
       }
-
-      secureLog.info('2FA disabled successfully');
-      return result;
+      
+      // Ensure we have a valid user session
+      const user = browserAuth.getUser();
+      if (!user || !user.token) {
+        secureLog.error('Authentication required to disable 2FA');
+        return { error: 'Authentication required' };
+      }
+      
+      secureLog.info('Attempting to disable 2FA');
+      
+      // Make direct fetch call to disable 2FA endpoint
+      const response = await fetch(`${API_URL}/auth/2fa/disable`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${user.token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ token: code }) // Server expects 'token', not 'code'
+      });
+      
+      // Handle response
+      if (!response.ok) {
+        const statusText = `${response.status}: ${response.statusText || 'Unknown error'}`;
+        secureLog.warn(`Disabling 2FA failed: ${statusText}`);
+        return { error: 'Failed to disable 2FA' };
+      }
+      
+      const data = await response.json();
+      
+      // Check if the response indicates success
+      if (data && data.success === true) {
+        secureLog.info('2FA disabled successfully');
+        return { data: { success: true }, error: null };
+      } else {
+        secureLog.warn('Disabling 2FA returned unexpected response', { 
+          success: false,
+          hasMessage: !!data.message
+        });
+        return { error: data.message || 'Failed to disable 2FA' };
+      }
     } catch (error) {
-      secureLog.error('2FA disable error');
+      secureLog.error('Error disabling 2FA', { errorMessage: error.message });
       return { error: 'Failed to disable 2FA' };
     }
   },
 
   get2FAStatus: async () => {
     try {
-      const result = await fetchWithAuth('/auth/2fa/status', {
-        method: 'GET'
-      });
-
-      if (result.error) {
-        secureLog.warn('2FA status check failed');
-        return { error: result.error };
+      // First, ensure we have a valid user session
+      const user = browserAuth.getUser();
+      if (!user || !user.token) {
+        secureLog.error('Authentication required for 2FA status check');
+        return { 
+          data: { enabled: false, pendingSetup: false },
+          error: null 
+        };
       }
-
-      // Return the data in a consistent format
+      
+      // Make a direct fetch call instead of using fetchWithAuth to bypass any potential issues
+      const response = await fetch(`${API_URL}/auth/2fa/status`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${user.token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        const statusText = `${response.status}: ${response.statusText || 'Unknown error'}`;
+        secureLog.warn(`2FA status check failed: ${statusText}`);
+        
+        // Return default values if server fails - assume 2FA is not enabled
+        return { 
+          data: { enabled: false, pendingSetup: false },
+          error: null 
+        };
+      }
+      
+      const data = await response.json();
+      
+      // Log status safely without exposing all data
+      secureLog.debug('2FA status response received', { 
+        responseStatus: response.status
+      });
+      
+      // Validate the response structure and provide defaults
+      const twoFAStatus = {
+        enabled: typeof data.enabled === 'boolean' ? data.enabled : false,
+        pendingSetup: typeof data.pendingSetup === 'boolean' ? data.pendingSetup : false
+      };
+      
+      secureLog.info('2FA status retrieved successfully', twoFAStatus);
+      
       return {
-        data: {
-          enabled: result.data?.enabled || false,
-          pendingSetup: result.data?.pendingSetup || false
-        },
+        data: twoFAStatus,
         error: null
       };
     } catch (error) {
-      secureLog.error('2FA status check error');
-      return { error: 'Failed to check 2FA status' };
+      secureLog.error('2FA status check error', { errorMessage: error.message });
+      
+      // Return default values on error - assume 2FA is not enabled
+      return { 
+        data: { enabled: false, pendingSetup: false },
+        error: null 
+      };
     }
   },
 
@@ -2309,11 +2497,66 @@ setInterval(() => {
   }
 }, 30000); // Check every 30 seconds
 
+// Add a function to get the correct company ID based on user role
+const getEffectiveCompanyId = (requestedCompanyId = null) => {
+  const user = browserAuth.getUser();
+  if (!user) return null;
+  
+  // For superadmins, allow them to specify a company_id or get all data
+  if (user.role === 'superadmin') {
+    return requestedCompanyId;
+  }
+  
+  // For all other roles, force their own company_id
+  return user.company_id;
+};
+
+// Update the cache when switching users
+browserAuth.setAuth = (token, refreshToken, userData) => {
+  // Check if this is a new user login
+  const currentUser = browserAuth.getUser();
+  const isNewUser = !currentUser || currentUser.id !== userData?.id;
+  
+  // If it's a new user or different role (e.g., switching from superadmin to regular user)
+  if (isNewUser || (currentUser?.role !== userData?.role)) {
+    secureLog.info('User changed, clearing cache');
+    // Clear caches and reset session state
+    clearAllCache();
+    
+    // Reset cache objects
+    Object.keys(cache).forEach(key => {
+      cache[key].data = null;
+      cache[key].timestamp = null;
+    });
+  }
+  
+  // Store the token and user info
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('accessToken', token);
+    if (refreshToken) {
+      localStorage.setItem('refreshToken', refreshToken);
+    }
+    if (userData) {
+      localStorage.setItem('user', JSON.stringify(userData));
+    }
+    
+    // Store essential user data as backup
+    if (userData) {
+      localStorage.setItem('company_id', userData.company_id || '');
+      localStorage.setItem('user_role', userData.role || '');
+    }
+    
+    // Dispatch a storage event to notify other tabs
+    window.dispatchEvent(new Event('auth_update'));
+  }
+};
+
 module.exports = {
   companyAPI,
   playerAPI,
   userAPI,
   authAPI,
   invalidateCaches,
+  getEffectiveCompanyId,
   browserAuth: null   // Import separately from utils/browserUtils.js
 };
