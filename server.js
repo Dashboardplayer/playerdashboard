@@ -1509,7 +1509,16 @@ app.post('/api/auth/register-invitation', authenticateToken, authorize('superadm
       return res.status(500).json({ error: 'Failed to send invitation email' });
     }
     
-    res.json({ message: 'Invitation sent successfully' });
+    // Return a complete response with user information
+    res.json({ 
+      message: 'Invitation sent successfully',
+      user: {
+        id: user._id,
+        email: user.email,
+        role: user.role,
+        status: 'pending'
+      }
+    });
   } catch (error) {
     console.error('Registration invitation error:', error);
     res.status(500).json({ error: 'Internal server error' });

@@ -154,9 +154,16 @@ const handleTokenExpiration = async (reason = 'expired') => {
   try {
     isHandlingExpiration = true;
     
+    // Set WebSocket to error state to prevent reconnection attempts
+    WS_FALLBACK.hasError = true;
+    
     // Clear WebSocket connection
     if (ws) {
-      ws.close();
+      try {
+        ws.close();
+      } catch (e) {
+        // Ignore close errors
+      }
       ws = null;
       window.ws = null;
     }
@@ -166,9 +173,18 @@ const handleTokenExpiration = async (reason = 'expired') => {
       clearTimeout(reconnectTimeout);
       reconnectTimeout = null;
     }
+    
+    // Clear polling mechanism
+    if (WS_FALLBACK.pollingTimeout) {
+      clearTimeout(WS_FALLBACK.pollingTimeout);
+      WS_FALLBACK.pollingTimeout = null;
+    }
 
     // Clear authentication state
     browserAuth.clearAuth();
+    
+    // Reset reconnection attempts
+    reconnectAttempts = 0;
     
     // Clear all cached data
     clearAllCache();
@@ -180,7 +196,10 @@ const handleTokenExpiration = async (reason = 'expired') => {
 
     // Force redirect to login if not already there
     const currentPath = window.location.pathname;
-    if (!currentPath.includes('/login')) {
+    if (!currentPath.includes('/login') && 
+        !currentPath.includes('/forgot-password') && 
+        !currentPath.includes('/reset-password') &&
+        !currentPath.includes('/complete-registration')) {
       window.location.href = '/login';
     }
   } finally {
@@ -430,7 +449,20 @@ function initializeWebSocket() {
     
     if (!user || !user.token) {
       secureLog.warn('WebSocket connection failed: No valid authentication');
+      // Mark connection as having error so we don't keep trying to reconnect
+      WS_FALLBACK.hasError = true;
+      
+      // Clear any pending reconnects
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+        reconnectTimeout = null;
+      }
       return;
+    }
+
+    // Only reset hasError if we have a valid token
+    if (WS_FALLBACK.hasError && user && user.token) {
+      WS_FALLBACK.hasError = false;
     }
 
     // Prevent multiple simultaneous connection attempts
@@ -724,6 +756,8 @@ function enableFallbackMechanism() {
       
       if (!user || !user.token) {
         secureLog.warn('Fallback polling stopped: No valid authentication');
+        // Clear the polling timeout
+        WS_FALLBACK.pollingTimeout = null;
         return;
       }
       
@@ -737,10 +771,22 @@ function enableFallbackMechanism() {
         initializeWebSocket();
       }
       
-      WS_FALLBACK.pollingTimeout = setTimeout(pollForUpdates, WS_FALLBACK.pollingInterval);
+      // Only continue polling if we still have a valid user
+      if (browserAuth.getUser()?.token) {
+        WS_FALLBACK.pollingTimeout = setTimeout(pollForUpdates, WS_FALLBACK.pollingInterval);
+      } else {
+        WS_FALLBACK.pollingTimeout = null;
+      }
     } catch (error) {
       secureLog.error('Error in fallback polling', { error: error.message });
-      WS_FALLBACK.pollingTimeout = setTimeout(pollForUpdates, WS_FALLBACK.pollingInterval);
+      const user = browserAuth.getUser();
+      
+      // Only continue polling if we still have a valid user
+      if (user && user.token) {
+        WS_FALLBACK.pollingTimeout = setTimeout(pollForUpdates, WS_FALLBACK.pollingInterval);
+      } else {
+        WS_FALLBACK.pollingTimeout = null;
+      }
     }
   };
   
@@ -1858,11 +1904,16 @@ const authAPI = {
         return { data: null, error: result.error };
       }
 
-      secureLog.info('Registration invitation sent successfully', { userId: result.data.id });
-      return result;
+      // Ensure result.data exists, even if it's minimal
+      const responseData = result.data || { message: 'Invitation sent successfully' };
+      
+      // Log success without trying to access potentially missing id
+      secureLog.info('Registration invitation sent successfully');
+      
+      return { data: responseData, error: null };
     } catch (error) {
       secureLog.error('Error sending registration invitation:', error);
-      return { data: null, error: error.message };
+      return { data: null, error: error.message || 'Unknown error occurred' };
     }
   },
 

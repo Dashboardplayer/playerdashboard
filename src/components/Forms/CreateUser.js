@@ -157,14 +157,20 @@ function CreateUser() {
         setCompanyId('');
       }
       
-      // Redirect after 2 seconds
-      setTimeout(() => {
-        if (profile?.role === 'superadmin') {
-          navigate('/superadmin-dashboard');
-        } else {
-          navigate('/company-dashboard');
-        }
-      }, 2000);
+      // Check if we still have a valid session
+      const currentUser = authAPI.getCurrentUser && await authAPI.getCurrentUser();
+      
+      // Only navigate if we have a valid session
+      if (currentUser?.data?.user) {
+        // Redirect after 2 seconds
+        setTimeout(() => {
+          if (profile?.role === 'superadmin') {
+            navigate('/superadmin-dashboard');
+          } else {
+            navigate('/company-dashboard');
+          }
+        }, 2000);
+      }
     } catch (err) {
       console.error('Unexpected error:', err);
       setError('Er is een onverwachte fout opgetreden.');
