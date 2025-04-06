@@ -149,8 +149,8 @@ function SignUp() {
       // Clear registration token after successful registration
       localStorage.removeItem(REGISTRATION_TOKEN_KEY);
       
-      // Instead of redirecting to login, check if we have auth data and go directly to dashboard
-      if (data.token && data.user) {
+      // Instead of redirecting to login, go directly to dashboard
+      if (data && data.user) {
         // Redirect to the appropriate dashboard based on user role
         if (data.user.role === 'superadmin') {
           navigate('/superadmin-dashboard');
@@ -158,7 +158,7 @@ function SignUp() {
           navigate('/company-dashboard');
         }
       } else {
-        // If for some reason we don't have user data, fall back to login
+        // Only redirect to login if we don't have valid user data
         navigate('/login');
       }
     } catch (err) {

@@ -549,9 +549,33 @@ function initializeWebSocket() {
     lastConnectionAttempt = now;
 
     // Create WebSocket with authentication token in protocol
-    // Ensure token is a string to prevent protocol errors like 'jwt.[object Object]'
-    const userToken = typeof user.token === 'string' ? user.token : JSON.stringify(user.token);
-    const protocols = [`jwt.${userToken}`];
+    // Fix for the 'jwt.[object Object]' protocol error
+    let tokenStr = '';
+    
+    try {
+      if (typeof user.token === 'string') {
+        tokenStr = user.token;
+      } else if (user.token && typeof user.token === 'object') {
+        // If token is an object, use accessToken property if available
+        tokenStr = user.token.accessToken || user.token.token || '';
+      } else if (user.token) {
+        tokenStr = String(user.token);
+      }
+      
+      // Don't use empty token strings
+      if (!tokenStr) {
+        secureLog.warn('Empty token string detected, aborting WebSocket connection');
+        isConnecting = false;
+        return;
+      }
+    } catch (tokenError) {
+      secureLog.error('Error parsing token for WebSocket protocol', tokenError);
+      isConnecting = false;
+      return;
+    }
+    
+    const protocols = [`jwt.${tokenStr}`];
+    console.log('Initializing WebSocket with protocol:', protocols[0].substring(0, 15) + '...');
     
     try {
       // Check if the server is available first by making a simple fetch request
@@ -1532,7 +1556,21 @@ const authAPI = {
           try {
             // Save the authentication data
             console.log('Setting auth with token and user info');
-            browserAuth.setAuth(data.token, data.refreshToken, data.user);
+            
+            // Ensure token is a string before saving
+            let tokenStr;
+            if (typeof data.token === 'string') {
+              tokenStr = data.token;
+            } else if (data.token && typeof data.token === 'object') {
+              tokenStr = data.token.accessToken || data.token.token || JSON.stringify(data.token);
+            } else if (data.token) {
+              tokenStr = String(data.token);
+            } else {
+              console.error('Empty token received during login');
+              return { data: null, error: 'Invalid token received' };
+            }
+            
+            browserAuth.setAuth(tokenStr, data.refreshToken, data.user);
             
             // Store essential user data as backup
             localStorage.setItem('company_id', data.user.company_id || '');
@@ -1553,8 +1591,8 @@ const authAPI = {
                     console.error('WebSocket init error:', error);
                   } finally {
                     window._initializing = false;
-                }
-              }, 3000);
+                  }
+                }, 3000);
               } catch (error) {
                 console.error('Session init error:', error);
                 window._initializing = false;
@@ -1655,10 +1693,27 @@ const authAPI = {
           
           // Set authentication details immediately with proper error handling
           try {
-            // Ensure token is a string before saving
-            const tokenString = typeof result.token === 'string' ? result.token : JSON.stringify(result.token);
+            // Ensure token is always a string
+            let tokenStr;
+            if (typeof result.token === 'string') {
+              tokenStr = result.token;
+            } else if (result.token && typeof result.token === 'object') {
+              // If token is an object, use accessToken property if available or stringify it
+              tokenStr = result.token.accessToken || result.token.token || JSON.stringify(result.token);
+            } else if (result.token) {
+              tokenStr = String(result.token);
+            } else {
+              tokenStr = '';
+              secureLog.warn('Empty token received during registration completion');
+            }
+            
+            // Only proceed if we have a non-empty token
+            if (!tokenStr) {
+              throw new Error('Invalid token received during registration completion');
+            }
+            
             // Set authentication details
-            browserAuth.setAuth(tokenString, result.refreshToken || null, result.user);
+            browserAuth.setAuth(tokenStr, result.refreshToken || null, result.user);
             secureLog.info('Registration completed successfully', { userId: result.user.id });
             
             // Pre-cache essential user data for offline access
