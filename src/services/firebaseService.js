@@ -1,5 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
+import { fetchWithAuth } from '../hooks/apiClient';
 
 // Import circuit breaker with a fallback
 let circuitBreaker;
@@ -85,20 +86,18 @@ class FirebaseService {
         };
 
         try {
-            // Send command via API endpoint that will use Firebase Admin SDK
-            const response = await fetch('/api/commands', {
+            // Send command via API endpoint using authenticated fetch
+            const response = await fetchWithAuth('/api/commands', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
                 body: JSON.stringify({
                     playerId,
                     command: commandMessage
                 })
             });
 
-            if (!response.ok) {
-                throw new Error('Failed to send command');
+            // Check for API errors returned by fetchWithAuth
+            if (response.error) {
+                throw new Error(response.error || 'Failed to send command');
             }
 
             // Set up command status tracking

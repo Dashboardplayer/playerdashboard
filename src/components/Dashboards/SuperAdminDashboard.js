@@ -149,8 +149,11 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
         const message = JSON.parse(event.data);
         console.log('WebSocket Message Received:', message); // Add detailed logging
 
+        // Get message type safely and convert to lowercase for comparison
+        const messageType = message?.type?.toLowerCase();
+
         // Update local state based on WebSocket messages
-        switch (message.type) {
+        switch (messageType) { // Use the lowercased, safe type
           case 'player_created':
             console.log('Handling player_created');
             setData(prevData => ({
@@ -159,20 +162,30 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
             }));
             break;
           case 'player_updated':
-            console.log('Handling player_updated for ID:', message.data._id);
-            setData(prevData => ({
-              ...prevData,
-              players: prevData.players.map(player => 
-                player._id === message.data._id ? { ...player, ...message.data } : player
-              )
-            }));
+            // Ensure data and _id exist before proceeding
+            if (message.data?._id) {
+              console.log('Handling player_updated for ID:', message.data._id);
+              setData(prevData => ({
+                ...prevData,
+                players: prevData.players.map(player => 
+                  player._id === message.data._id ? { ...player, ...message.data } : player
+                )
+              }));
+            } else {
+              console.warn('Received player_updated message with missing data or _id:', message);
+            }
             break;
           case 'player_deleted':
-            console.log('Handling player_deleted for ID:', message.data.id);
-            setData(prevData => ({
-              ...prevData,
-              players: prevData.players.filter(player => player._id !== message.data.id)
-            }));
+            // Ensure data and id exist before proceeding
+            if (message.data?.id) { 
+              console.log('Handling player_deleted for ID:', message.data.id);
+              setData(prevData => ({
+                ...prevData,
+                players: prevData.players.filter(player => player._id !== message.data.id)
+              }));
+            } else {
+               console.warn('Received player_deleted message with missing data or id:', message);
+            }
             break;
           case 'company_created':
           case 'company_updated':
