@@ -1407,7 +1407,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
 });
 
 // Registration invitation endpoint
-app.post('/api/auth/register-invitation', authenticateToken, authorize('superadmin', 'bedrijfsadmin'), async (req, res) => {
+app.post('/api/auth/register-invitation', auth, authorize(['superadmin', 'bedrijfsadmin']), async (req, res) => {
   try {
     console.log('User from token:', req.user);
     const { email, role, company_id } = req.body;
