@@ -21,6 +21,8 @@ services:
         sync: false
       - key: REACT_APP_RECAPTCHA_SITE_KEY
         sync: false
+      - key: RECAPTCHA_SECRET_KEY
+        sync: false
       - key: ALLOWED_ORIGINS
         value: https://player-dashboard.onrender.com
       - key: SECURITY_HEADERS_ENABLED

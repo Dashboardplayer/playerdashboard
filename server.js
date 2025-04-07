@@ -41,6 +41,7 @@ const {
   revokeRefreshToken,
   revokeAllUserRefreshTokens
 } = require('./src/services/refreshTokenService');
+const axios = require('axios');
 
 // Load environment variables
 dotenv.config();
@@ -963,13 +964,16 @@ app.post('/api/players/:id/commands', authenticateToken, async (req, res) => {
 });
 
 // User routes
-app.get('/api/users', auth, authorize(['superadmin', 'bedrijfsadmin']), async (req, res) => {
+app.get('/api/users', auth, authorize(['superadmin', 'bedrijfsadmin', 'user']), async (req, res) => {
   try {
     let userData = req.user;
     let query = {};
     
     // If user is not superadmin, only show users from their company
     if (userData.role !== 'superadmin') {
+      if (!userData.company_id) {
+        return res.json([]); // No company, no users
+      }
       query.company_id = userData.company_id;
     }
     
@@ -1036,11 +1040,27 @@ app.delete('/api/users/:userId', authenticateToken, async (req, res) => {
   }
 });
 
+// reCAPTCHA verification function
+const verifyRecaptcha = async (token) => {
+  try {
+    const response = await axios.post('https://www.google.com/recaptcha/api/siteverify', null, {
+      params: {
+        secret: process.env.RECAPTCHA_SECRET_KEY,
+        response: token
+      }
+    });
+    return response.data.success;
+  } catch (error) {
+    console.error('reCAPTCHA verification error:', error);
+    return false;
+  }
+};
+
 // Login endpoint
 app.post('/api/auth/login', loginLimiter, async (req, res) => {
   try {
     console.log('Login attempt received:', { email: req.body.email });
-    const { email, password } = req.body;
+    const { email, password, recaptchaToken } = req.body;
 
     // Input validation
     if (!email || !password) {
@@ -1058,11 +1078,32 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
+    // Check if user has exceeded login attempts
+    const loginAttempts = user.loginAttempts || 0;
+    if (loginAttempts >= 3) {
+      // Verify reCAPTCHA if attempts >= 3
+      if (!recaptchaToken) {
+        return res.status(400).json({ error: 'CAPTCHA verification required' });
+      }
+
+      const isValidCaptcha = await verifyRecaptcha(recaptchaToken);
+      if (!isValidCaptcha) {
+        return res.status(400).json({ error: 'Invalid CAPTCHA' });
+      }
+    }
+
     // Verify password
     const isValid = await user.verifyPassword(password);
     if (!isValid) {
+      // Increment login attempts
+      user.loginAttempts = (user.loginAttempts || 0) + 1;
+      await user.save();
       return res.status(401).json({ error: 'Invalid email or password' });
     }
+
+    // Reset login attempts on successful login
+    user.loginAttempts = 0;
+    await user.save();
 
     // Check if 2FA is enabled
     const twoFAStatus = await get2FAStatus(user._id);
