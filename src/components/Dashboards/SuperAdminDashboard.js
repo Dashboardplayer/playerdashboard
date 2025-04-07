@@ -41,6 +41,7 @@ import { Link } from 'react-router-dom';
 import PlayerManagement from '../Players/PlayerManagement';
 import { firebaseService } from '../../services/firebaseService';
 import { secureLog } from '../../utils/secureLogger';
+import { browserAuth } from '../../utils/browserUtils';
 
 function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard, hideHeader }) {
   const [currentTab, setCurrentTab] = useState(0);
@@ -82,6 +83,12 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
       setLoading(true);
       setError('');
 
+      // Check if user is authenticated first
+      const user = browserAuth.getUser();
+      if (!user || !user.token) {
+        throw new Error('Authentication required. Please log in again.');
+      }
+
       // Fetch all data in parallel using API clients
       const [playersResult, companiesResult, usersResult] = await Promise.all([
         playerAPI.getAll(),
@@ -116,6 +123,14 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
 
     } catch (err) {
       secureLog.error('Dashboard data fetch error', { error: err.message });
+      
+      // Check if this is an authentication error
+      if (err.message.includes('Authentication required') || err.message.includes('No authentication')) {
+        // Redirect to login if this is an authentication error
+        window.location.href = '/login';
+        return;
+      }
+      
       setError(err.message || 'Er is een onverwachte fout opgetreden.');
     } finally {
       setLoading(false);
@@ -203,6 +218,12 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
   // Function to fetch users
   const fetchUsers = useCallback(async () => {
     try {
+      // Check if user is authenticated first
+      const user = browserAuth.getUser();
+      if (!user || !user.token) {
+        throw new Error('Authentication required. Please log in again.');
+      }
+      
       // Clear any cached users to ensure fresh data
       localStorage.removeItem('cached_users');
       
@@ -213,6 +234,13 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
       const { data, error } = await userAPI.getAll();
       
       if (error) {
+        // Check if this is an authentication error
+        if (error.includes('Authentication required') || error.includes('No authentication')) {
+          // Redirect to login if this is an authentication error
+          window.location.href = '/login';
+          return;
+        }
+        
         secureLog.error('Error fetching users:', error);
         setError('Fout bij het ophalen van gebruikers.');
         return;
@@ -247,6 +275,14 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
       }
     } catch (err) {
       secureLog.error('Unexpected error fetching users:', err);
+      
+      // Check if this is an authentication error
+      if (err.message.includes('Authentication required') || err.message.includes('No authentication')) {
+        // Redirect to login if this is an authentication error
+        window.location.href = '/login';
+        return;
+      }
+      
       setError('Er is een onverwachte fout opgetreden bij het ophalen van gebruikers.');
     } finally {
       setLoading(false);

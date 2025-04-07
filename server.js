@@ -698,6 +698,12 @@ wss.on('connection', function connection(ws, req) {
           ws.isAlive = true;
           break;
 
+        case 'ping':
+          // Respond to ping with pong to keep connection alive
+          ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
+          ws.isAlive = true;
+          break;
+
         case 'heartbeat':
           // Handle heartbeat message
           ws.send(JSON.stringify({ type: 'heartbeat_ack', timestamp: Date.now() }));
@@ -824,36 +830,11 @@ app.get('/api/players', auth, authorize(['superadmin', 'bedrijfsadmin', 'user'])
 
 app.post('/api/players', auth, authorize(['superadmin', 'bedrijfsadmin']), async (req, res) => {
   try {
-    const { device_id } = req.body;
-    const company_id = req.body.company_id || req.user.company_id;
-    
-    // Validate required fields
-    if (!device_id) {
-      return res.status(400).json({ error: 'Device ID is required' });
-    }
-    
-    // If user is not superadmin, they can only create players for their own company
-    if (req.user.role !== 'superadmin') {
-      if (!req.user.company_id) {
-        return res.status(403).json({ error: 'No company assigned to your account' });
-      }
-      if (company_id !== req.user.company_id) {
-        return res.status(403).json({ error: 'You can only create players for your own company' });
-      }
-    }
-    
-    // Check if player with this device_id already exists
-    const existingPlayer = await Player.findOne({ device_id });
-    if (existingPlayer) {
-      return res.status(400).json({ error: `Player with device ID "${device_id}" already exists` });
-    }
-    
     // Create new player
     const player = new Player({
-      device_id,
-      company_id,
-      current_url: req.body.current_url || '',
-      is_online: req.body.is_online || false
+      ...req.body,
+      is_online: false, // Default to offline
+      last_seen: new Date()
     });
     
     await player.save();
@@ -2366,4 +2347,81 @@ app.get('/api/ping', (req, res) => {
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Running in ${process.env.NODE_ENV} mode`);
+});
+
+// Initialize scheduled tasks
+// ... existing code ...
+require('./src/cron/registrationReminders'); // Initialize registration reminders cron job
+require('./src/cron/tokenMaintenance'); // Initialize token maintenance cron job
+
+// Initialize player activity monitor
+const PLAYER_OFFLINE_THRESHOLD = 2 * 60 * 1000; // 2 minutes in milliseconds
+const checkOfflinePlayers = async () => {
+  try {
+    const offlineThreshold = new Date(Date.now() - PLAYER_OFFLINE_THRESHOLD);
+    
+    // Find all players marked as online that haven't sent a heartbeat recently
+    const inactivePlayers = await Player.find({
+      is_online: true,
+      last_seen: { $lt: offlineThreshold }
+    });
+    
+    if (inactivePlayers.length > 0) {
+      secureLog.info(`Marking ${inactivePlayers.length} inactive players as offline`);
+      
+      // Update each player's status to offline
+      const updatePromises = inactivePlayers.map(player => {
+        player.is_online = false;
+        return player.save();
+      });
+      
+      await Promise.all(updatePromises);
+      
+      // Broadcast updates for each player
+      inactivePlayers.forEach(player => {
+        broadcastEvent('player_updated', player);
+      });
+    }
+  } catch (error) {
+    secureLog.error('Error checking for inactive players:', error);
+  }
+};
+
+// Run every 30 seconds
+setInterval(checkOfflinePlayers, 30 * 1000);
+
+// Add player heartbeat endpoint
+app.put('/api/players/:playerId/heartbeat', async (req, res) => {
+  try {
+    const { playerId } = req.params;
+    
+    // Find player by device_id
+    const player = await Player.findOne({ device_id: playerId });
+    
+    if (!player) {
+      secureLog.warn(`Heartbeat received for unknown player: ${playerId}`);
+      return res.status(404).json({ error: 'Player not found' });
+    }
+    
+    // Update player status
+    player.is_online = true;
+    player.last_seen = new Date();
+    
+    // Update other fields if provided
+    if (req.body) {
+      if (req.body.current_url !== undefined) {
+        player.current_url = req.body.current_url;
+      }
+    }
+    
+    await player.save();
+    
+    // Broadcast the update event
+    broadcastEvent('player_updated', player);
+    
+    return res.json({ success: true });
+  } catch (error) {
+    secureLog.error('Error processing player heartbeat:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });

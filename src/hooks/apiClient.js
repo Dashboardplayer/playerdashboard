@@ -191,7 +191,7 @@ const handleTokenExpiration = async (reason = 'expired') => {
     clearAllCache();
     
     // Dispatch logout event
-    window.dispatchEvent(new CustomEvent('auth-expired', {
+    window.dispatchEvent(new CustomEvent('auth_expired', {
       detail: { reason }
     }));
 
@@ -1048,6 +1048,15 @@ const invalidateCache = (type) => {
     cache[type].data = null;
     cache[type].timestamp = null;
   }
+  
+  // Also clear localStorage cache for the specific type
+  if (type === 'players') {
+    localStorage.removeItem('cached_players');
+  } else if (type === 'users') {
+    localStorage.removeItem('cached_users');
+  } else if (type === 'companies') {
+    localStorage.removeItem('cached_companies');
+  }
 };
 
 // A simpler debounce implementation
@@ -1375,8 +1384,8 @@ const playerAPI = {
         throw new Error(errorMessage);
       }
 
-      // Clear all cached data to ensure fresh state
-      clearAllCache();
+      // Only invalidate player cache instead of clearing all cache
+      invalidateCache('players');
       secureLog.info('Player deleted successfully', { playerId });
       
       return { data: { success: true }, error: null };
