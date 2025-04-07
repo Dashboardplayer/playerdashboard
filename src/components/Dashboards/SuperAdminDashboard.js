@@ -147,25 +147,47 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
     const handleWebSocketMessage = (event) => {
       try {
         const message = JSON.parse(event.data);
-        
+        console.log('WebSocket Message Received:', message); // Add detailed logging
+
         // Update local state based on WebSocket messages
         switch (message.type) {
           case 'player_created':
+            console.log('Handling player_created');
+            setData(prevData => ({
+              ...prevData,
+              players: [...prevData.players, message.data]
+            }));
+            break;
           case 'player_updated':
+            console.log('Handling player_updated for ID:', message.data._id);
+            setData(prevData => ({
+              ...prevData,
+              players: prevData.players.map(player => 
+                player._id === message.data._id ? { ...player, ...message.data } : player
+              )
+            }));
+            break;
           case 'player_deleted':
-            fetchDashboardData(); // Refresh all data as player changes might affect stats
+            console.log('Handling player_deleted for ID:', message.data.id);
+            setData(prevData => ({
+              ...prevData,
+              players: prevData.players.filter(player => player._id !== message.data.id)
+            }));
             break;
           case 'company_created':
           case 'company_updated':
           case 'company_deleted':
-            fetchDashboardData(); // Refresh all data as company changes affect multiple aspects
+            console.log('Handling company event:', message.type);
+            fetchDashboardData(); // Still fetch all for company changes
             break;
           case 'user_created':
           case 'user_updated':
           case 'user_deleted':
-            fetchDashboardData(); // Refresh all data as user changes might affect stats
+            console.log('Handling user event:', message.type);
+            fetchDashboardData(); // Still fetch all for user changes
             break;
           default:
+             console.warn('Received unknown WebSocket message type:', message.type);
             break;
         }
       } catch (error) {
