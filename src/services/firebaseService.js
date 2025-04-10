@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getMessaging, getToken, onMessage } from 'firebase/messaging';
-import { fetchWithAuth } from '../hooks/apiClient';
+import { playerAPI } from '../hooks/apiClient';
 
 // Import circuit breaker with a fallback
 let circuitBreaker;
@@ -86,19 +86,18 @@ class FirebaseService {
         };
 
         try {
-            // Send command via API endpoint using authenticated fetch
-            const response = await fetchWithAuth('/api/commands', {
-                method: 'POST',
-                body: JSON.stringify({
-                    playerId,
-                    command: commandMessage
-                })
-            });
+            // Send command using the playerAPI client
+            const response = await playerAPI.sendCommand(playerId, commandMessage);
 
-            // Check for API errors returned by fetchWithAuth
+            // Check for errors returned by the API client
             if (response.error) {
-                throw new Error(response.error || 'Failed to send command');
+                throw new Error(response.error || 'Failed to send command via API');
             }
+
+            // Assuming the backend endpoint /api/players/:playerId/commands 
+            // returns the created command object or confirms success.
+            // Log the successful response from the backend
+            console.log('Command sent successfully via API:', response);
 
             // Set up command status tracking
             this.commandStatus.set(commandId, {

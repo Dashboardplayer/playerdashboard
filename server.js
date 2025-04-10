@@ -2434,35 +2434,110 @@ setInterval(checkOfflinePlayers, 30 * 1000);
 // Add player heartbeat endpoint
 app.put('/api/players/:playerId/heartbeat', async (req, res) => {
   try {
-    const { playerId } = req.params;
+    const { playerId } = req.params; // This is device_id from the path
+    secureLog.debug(`Heartbeat received for player: ${playerId}`);
     
     // Find player by device_id
     const player = await Player.findOne({ device_id: playerId });
     
     if (!player) {
-      secureLog.warn(`Heartbeat received for unknown player: ${playerId}`);
+      secureLog.warn(`Heartbeat: Player not found for device_id: ${playerId}`);
       return res.status(404).json({ error: 'Player not found' });
     }
     
     // Update player status
-    player.is_online = true;
+    let updated = false;
+    if (!player.is_online) {
+        player.is_online = true;
+        updated = true;
+    }
     player.last_seen = new Date();
     
-    // Update other fields if provided
+    // Update other fields if provided in body
     if (req.body) {
-      if (req.body.current_url !== undefined) {
+      if (req.body.current_url !== undefined && player.current_url !== req.body.current_url) {
         player.current_url = req.body.current_url;
+        updated = true;
+        secureLog.debug(`Heartbeat: Updated URL for ${playerId} to ${req.body.current_url}`);
       }
+      // --- Add Company ID Update --- 
+      if (req.body.company_id !== undefined && player.company_id !== req.body.company_id) {
+         player.company_id = req.body.company_id;
+         updated = true;
+         secureLog.debug(`Heartbeat: Updated Company ID for ${playerId} to ${req.body.company_id}`);
+      }
+      // Add other fields like battery, disk space if needed
+      if (req.body.battery_level !== undefined) player.battery_level = req.body.battery_level;
+      if (req.body.disk_space !== undefined) player.disk_space = req.body.disk_space;
+      if (req.body.deviceStats) player.deviceStats = req.body.deviceStats;
     }
     
     await player.save();
     
-    // Broadcast the update event
-    broadcastEvent('player_updated', player);
+    // Broadcast the update event only if something changed
+    if (updated) {
+        secureLog.debug(`Heartbeat: Broadcasting player_updated for ${playerId}`);
+        broadcastEvent('player_updated', player.toObject()); // Send plain object
+    }
     
-    return res.json({ success: true });
+    // Return success, maybe include pending commands count?
+    return res.json({ success: true }); 
   } catch (error) {
     secureLog.error('Error processing player heartbeat:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
+});
+
+// New endpoint for players to fetch pending commands
+app.get('/api/players/:playerId/commands', async (req, res) => {
+    const { playerId } = req.params; // This is device_id
+    const { status } = req.query; // e.g., ?status=pending
+
+    secureLog.debug(`Command fetch request for player: ${playerId}, status: ${status}`);
+
+    // TODO: Add authentication/authorization if needed. 
+    // For now, assume player fetching its own commands is okay if device_id matches.
+
+    try {
+        // Find the player by device_id to get the internal MongoDB _id
+        const player = await Player.findOne({ device_id: playerId });
+        if (!player) {
+            secureLog.warn(`Command fetch: Player not found for device_id: ${playerId}`);
+            return res.status(404).json({ error: 'Player not found' });
+        }
+
+        const playerMongoId = player._id;
+        secureLog.debug(`Command fetch: Found player Mongo ID: ${playerMongoId} for device ID: ${playerId}`);
+
+        // Define query based on status
+        const query = { 
+            player_id: playerMongoId,
+            status: status || 'pending' // Default to pending if status not provided
+        };
+
+        // Find pending commands for this player
+        const commands = await Command.find(query).sort({ createdAt: 1 }); // Fetch oldest first
+        secureLog.debug(`Command fetch: Found ${commands.length} commands for player ${playerId} with status ${query.status}`);
+
+        // Update status of fetched commands to 'delivered' (or 'processing')
+        if (commands.length > 0) {
+            const commandIds = commands.map(cmd => cmd._id);
+            try {
+                await Command.updateMany(
+                    { _id: { $in: commandIds } }, 
+                    { $set: { status: 'delivered', deliveredAt: new Date() } }
+                );
+                secureLog.debug(`Command fetch: Marked ${commandIds.length} commands as delivered for player ${playerId}`);
+            } catch (updateError) {
+                secureLog.error(`Command fetch: Error marking commands as delivered for player ${playerId}:`, updateError);
+                // Proceed with returning commands, but log the error
+            }
+        }
+
+        // Return the commands
+        res.json(commands);
+    } catch (error) {
+        secureLog.error(`Error fetching commands for player ${playerId}:`, error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
 });

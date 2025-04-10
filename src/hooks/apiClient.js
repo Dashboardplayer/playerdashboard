@@ -1393,6 +1393,20 @@ const playerAPI = {
       secureLog.error('Player deletion error', { error: error.message });
       return { error: error.message };
     }
+  },
+  // New function to send commands to a specific player
+  sendCommand: async (playerId, command) => {
+    if (!playerId || !command || !command.type) {
+      return { error: 'Player ID and command type are required' };
+    }
+    // Use the internal fetchWithAuth helper
+    const result = await fetchWithAuth(`/players/${playerId}/commands`, {
+      method: 'POST',
+      body: JSON.stringify(command) // Send the whole command object as defined in firebaseService
+    });
+    // Invalidate player cache if needed, though sending a command might not change player list directly
+    // invalidateCache('players'); 
+    return result; 
   }
 };
 
