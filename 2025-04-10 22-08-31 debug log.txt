@@ -1,0 +1,917 @@
+I/FA      ( 2390): App measurement initialized, version: 75066
+
+I/FA      ( 2390): To enable debug logging run: adb shell setprop log.tag.FA VERBOSE
+
+I/FA      ( 2390): To enable faster debug mode event logging run:
+
+I/FA      ( 2390):   adb shell setprop debug.firebase.analytics.app com.google.android.apps.youtube.music
+
+I/FA-SVC  ( 1267): App measurement initialized, version: 225014
+
+I/FA      ( 2392): App measurement initialized, version: 75066
+
+I/FA      ( 2392): To enable debug logging run: adb shell setprop log.tag.FA VERBOSE
+
+I/FA      ( 2392): To enable faster debug mode event logging run:
+
+I/FA      ( 2392):   adb shell setprop debug.firebase.analytics.app com.google.android.youtube
+
+I/FA      ( 3596): App measurement initialized, version: 75066
+
+I/FA      ( 3596): To enable debug logging run: adb shell setprop log.tag.FA VERBOSE
+
+I/FA      ( 3596): To enable faster debug mode event logging run:
+
+I/FA      ( 3596):   adb shell setprop debug.firebase.analytics.app com.google.android.apps.youtube.music
+
+I/FA-SVC  ( 3614): App measurement initialized, version: 225014
+
+I/FA-SVC  ( 3614): Install Referrer Reporter is not available
+
+I/FA-SVC  ( 3614): Install Referrer Reporter is not available
+
+W/FA-SVC  ( 3614): Storing bundle outside of the max uploading time span. appId, now, timestamp: com.google.android.apps.youtube.music, 1744253143285, 1685965622346
+
+W/FA-SVC  ( 3614): Storing bundle outside of the max uploading time span. appId, now, timestamp: com.google.android.youtube, 1744253143382, 1685965631014
+
+I/FA-SVC  ( 5831): App measurement initialized, version: 225014
+
+I/aybeheer.player( 7450): Late-enabling -Xcheck:jni
+
+W/aybeheer.player( 7450): Unexpected CPU variant for x86: x86_64.
+
+W/aybeheer.player( 7450): Known variants: atom, sandybridge, silvermont, kabylake, default
+
+D/CompatibilityChangeReporter( 7450): Compat change id reported: 171979766; UID 10170; state: ENABLED
+
+W/ziparchive( 7450): Unable to open '/data/app/~~kgtUn7KlcTrgobRAJn0eKg==/com.displaybeheer.player-piFZTb33h2R-VmJrfqcydg==/base.dm': No such file or directory
+
+W/ziparchive( 7450): Unable to open '/data/app/~~kgtUn7KlcTrgobRAJn0eKg==/com.displaybeheer.player-piFZTb33h2R-VmJrfqcydg==/base.dm': No such file or directory
+
+D/nativeloader( 7450): Configuring classloader-namespace for other apk /data/app/~~kgtUn7KlcTrgobRAJn0eKg==/com.displaybeheer.player-piFZTb33h2R-VmJrfqcydg==/base.apk. target_sdk_version=34, uses_libraries=, library_path=/data/app/~~kgtUn7KlcTrgobRAJn0eKg==/com.displaybeheer.player-piFZTb33h2R-VmJrfqcydg==/lib/x86_64, permitted_path=/data:/mnt/expand:/data/user/0/com.displaybeheer.player
+
+V/GraphicsEnvironment( 7450): ANGLE Developer option for 'com.displaybeheer.player' set to: 'default'
+
+V/GraphicsEnvironment( 7450): ANGLE GameManagerService for com.displaybeheer.player: false
+
+V/GraphicsEnvironment( 7450): Neither updatable production driver nor prerelease driver is supported.
+
+D/NetworkSecurityConfig( 7450): No Network Security Config specified, using platform default
+
+D/NetworkSecurityConfig( 7450): No Network Security Config specified, using platform default
+
+D/CompatibilityChangeReporter( 7450): Compat change id reported: 183155436; UID 10170; state: ENABLED
+
+I/FirebaseApp( 7450): Device unlocked: initializing all Firebase APIs for app [DEFAULT]
+
+I/FirebaseInitProvider( 7450): FirebaseApp initialization successful
+
+D/AppCompatDelegate( 7450): Checking for metadata for AppLocalesMetadataHolderService : Service not found
+
+W/ziparchive( 7450): Unable to open '/data/user_de/0/com.google.android.gms/app_chimera/m/00000002/DynamiteLoader.dm': No such file or directory
+
+W/ziparchive( 7450): Unable to open '/data/user_de/0/com.google.android.gms/app_chimera/m/00000002/DynamiteLoader.dm': No such file or directory
+
+I/DynamiteModule( 7450): Considering local module com.google.android.gms.measurement.dynamite:100 and remote module com.google.android.gms.measurement.dynamite:87
+
+I/DynamiteModule( 7450): Selected local version of com.google.android.gms.measurement.dynamite
+
+D/libEGL  ( 7450): loaded /vendor/lib64/egl/libEGL_emulation.so
+
+D/libEGL  ( 7450): loaded /vendor/lib64/egl/libGLESv1_CM_emulation.so
+
+D/libEGL  ( 7450): loaded /vendor/lib64/egl/libGLESv2_emulation.so
+
+D/NetworkModule( 7450): Using API Base URL: https://player-dashboard.onrender.com/
+
+W/aybeheer.player( 7450): Accessing hidden method Ljava/lang/invoke/MethodHandles$Lookup;-><init>(Ljava/lang/Class;I)V (unsupported, reflection, allowed)
+
+D/CompatibilityChangeReporter( 7450): Compat change id reported: 210923482; UID 10170; state: ENABLED
+
+W/aybeheer.player( 7450): Accessing hidden method Landroid/view/View;->computeFitSystemWindows(Landroid/graphics/Rect;Landroid/graphics/Rect;)Z (unsupported, reflection, allowed)
+
+I/WebViewFactory( 7450): Loading com.google.android.webview version 103.0.5060.71 (code 506007137)
+
+D/nativeloader( 7450): Configuring vendor-classloader-namespace for unbundled product apk /product/app/TrichromeLibrary/TrichromeLibrary.apk. target_sdk_version=33, uses_libraries=ALL, library_path=/product/app/WebViewGoogle/lib/x86_64:/product/app/WebViewGoogle/WebViewGoogle.apk!/lib/x86_64:/product/app/TrichromeLibrary/TrichromeLibrary.apk!/lib/x86_64:/product/lib64:/system/product/lib64, permitted_path=/data:/mnt/expand:/product/lib64:/system/product/lib64
+
+W/aybeheer.player( 7450): ClassLoaderContext shared library size mismatch. Expected=0, found=1 (PCL[] | PCL[]{PCL[/product/app/TrichromeLibrary/TrichromeLibrary.apk*3197987500]})
+
+D/nativeloader( 7450): Configuring vendor-classloader-namespace for unbundled product apk /product/app/WebViewGoogle/WebViewGoogle.apk. target_sdk_version=33, uses_libraries=, library_path=/product/app/WebViewGoogle/lib/x86_64:/product/app/WebViewGoogle/WebViewGoogle.apk!/lib/x86_64:/product/app/TrichromeLibrary/TrichromeLibrary.apk!/lib/x86_64:/product/lib64:/system/product/lib64, permitted_path=/data:/mnt/expand:/product/lib64:/system/product/lib64
+
+W/aybeheer.player( 7450): Accessing hidden method Landroid/os/Trace;->isTagEnabled(J)Z (unsupported, reflection, allowed)
+
+W/aybeheer.player( 7450): Accessing hidden method Landroid/os/Trace;->traceBegin(JLjava/lang/String;)V (unsupported, reflection, allowed)
+
+W/aybeheer.player( 7450): Accessing hidden method Landroid/os/Trace;->traceEnd(J)V (unsupported, reflection, allowed)
+
+W/aybeheer.player( 7450): Accessing hidden method Landroid/os/Trace;->asyncTraceBegin(JLjava/lang/String;I)V (unsupported, reflection, allowed)
+
+W/aybeheer.player( 7450): Accessing hidden method Landroid/os/Trace;->asyncTraceEnd(JLjava/lang/String;I)V (unsupported, reflection, allowed)
+
+I/cr_WVCFactoryProvider( 7450): Loaded version=103.0.5060.71 minSdkVersion=29 isBundle=false multiprocess=true packageId=2
+
+I/cr_LibraryLoader( 7450): Successfully loaded native library
+
+I/cr_CachingUmaRecorder( 7450): Flushed 9 samples from 9 histograms.
+
+I/cr_VariationsUtils( 7450): Failed reading seed file "/data/user/0/com.displaybeheer.player/app_webview/variations_seed_new"
+
+I/cr_VariationsUtils( 7450): Failed reading seed file "/data/user/0/com.displaybeheer.player/app_webview/variations_seed"
+
+I/cr_VariationsUtils( 7450): Requesting new seed from IVariationsSeedServer
+
+D/TrafficStats( 7450): tagSocket(90) with statsTag=0x8001, statsUid=-1
+
+I/FA      ( 7450): App measurement initialized, version: 84002
+
+I/FA      ( 7450): To enable debug logging run: adb shell setprop log.tag.FA VERBOSE
+
+I/FA      ( 7450): To enable faster debug mode event logging run:
+
+I/FA      ( 7450):   adb shell setprop debug.firebase.analytics.app com.displaybeheer.player
+
+D/CompatibilityChangeReporter( 7450): Compat change id reported: 214741472; UID 10170; state: ENABLED
+
+D/CompatibilityChangeReporter( 7450): Compat change id reported: 171228096; UID 10170; state: ENABLED
+
+W/aybeheer.player( 7450): Accessing hidden method Landroid/view/ViewGroup;->makeOptionalFitsSystemWindows()V (unsupported, reflection, allowed)
+
+D/DeviceRegistrationManager( 7450): Generated NEW device ID: 6ce008eb
+
+D/DeviceRegistrationManager( 7450): Device ID saved to SharedPreferences
+
+D/DeviceRegistrationManager( 7450): Device ID saved to file: /data/user/0/com.displaybeheer.player/files/device_id.txt
+
+D/MainActivity( 7450): Device ID on startup: 6ce008eb
+
+D/MainActivity( 7450): Requesting WRITE_SETTINGS permission
+
+D/MainActivity( 7450): Requesting notification permission...
+
+D/MainViewModel( 7450): Initial Company ID loaded: NOCOMPANY
+
+D/MainActivity( 7450): No valid saved URL found, loading blank page
+
+W/aybeheer.player( 7450): Accessing hidden method Landroid/media/AudioManager;->getOutputLatency(I)I (unsupported, reflection, allowed)
+
+W/cr_media( 7450): Requires BLUETOOTH permission
+
+D/HostConnection( 7450): HostComposition ext ANDROID_EMU_CHECKSUM_HELPER_v1 ANDROID_EMU_native_sync_v2 ANDROID_EMU_native_sync_v3 ANDROID_EMU_native_sync_v4 ANDROID_EMU_dma_v1 ANDROID_EMU_direct_mem ANDROID_EMU_host_composition_v1 ANDROID_EMU_host_composition_v2 ANDROID_EMU_YUV_Cache ANDROID_EMU_has_shared_slots_host_memory_allocator ANDROID_EMU_sync_buffer_data ANDROID_EMU_read_color_buffer_dma ANDROID_EMU_hwc_multi_configs GL_OES_EGL_image_external_essl3 GL_OES_vertex_array_object GL_KHR_texture_compression_astc_ldr ANDROID_EMU_host_side_tracing ANDROID_EMU_gles_max_version_3_1 
+
+D/DeviceRegistrationManager( 7450): Using cached device ID: 6ce008eb
+
+D/EGL_emulation( 7450): eglCreateContext: 0x7970c6c40150: maj 3 min 1 rcv 4
+
+D/EGL_emulation( 7450): eglMakeCurrent: 0x7970c6c40150: ver 3 1 (tinfo 0x7972e4616080) (first time)
+
+D/MainActivity( 7450): Updated player info display: ID=6ce008eb, Company=NOCOMPANY
+
+I/FA      ( 7450): Tag Manager is not found and thus will not be used
+
+D/DeviceRegistrationManager( 7450): Using cached device ID: 6ce008eb
+
+D/MainActivity( 7450): Initializing app with device ID: 6ce008eb
+
+D/MainActivity( 7450): No valid saved URL found, loading blank page
+
+D/MainActivity( 7450): Starting device registration process
+
+D/DeviceRegistrationManager( 7450): Using cached device ID: 6ce008eb
+
+D/MainActivity( 7450): Updated player info display: ID=6ce008eb, Company=NOCOMPANY
+
+D/DeviceRegistrationManager( 7450): Using cached device ID: 6ce008eb
+
+D/DeviceRegistrationManager( 7450): Starting registration process for device ID: 6ce008eb
+
+D/DeviceRegistrationManager( 7450): Checking if server is reachable before registration...
+
+I/okhttp.OkHttpClient( 7450): --> GET https://player-dashboard.onrender.com/api/status
+
+I/okhttp.OkHttpClient( 7450): --> END GET
+
+D/NetworkModule( 7450): Making request to: https://player-dashboard.onrender.com/api/status
+
+D/NetworkModule( 7450): Using User-Agent: AndroidPlayer/1.0 (Appetize.io; sdk_gphone_x86_64; SDK 33)
+
+D/EGL_emulation( 7450): eglCreateContext: 0x7970c6c40150: maj 3 min 0 rcv 3
+
+I/Choreographer( 7450): Skipped 95 frames!  The application may be doing too much work on its main thread.
+
+D/CompatibilityChangeReporter( 7450): Compat change id reported: 193247900; UID 10170; state: ENABLED
+
+D/TrafficStats( 7450): tagSocket(174) with statsTag=0xffffffff, statsUid=-1
+
+D/EGL_emulation( 7450): eglCreateContext: 0x7970c6c46c90: maj 3 min 0 rcv 3
+
+D/HostConnection( 7450): HostComposition ext ANDROID_EMU_CHECKSUM_HELPER_v1 ANDROID_EMU_native_sync_v2 ANDROID_EMU_native_sync_v3 ANDROID_EMU_native_sync_v4 ANDROID_EMU_dma_v1 ANDROID_EMU_direct_mem ANDROID_EMU_host_composition_v1 ANDROID_EMU_host_composition_v2 ANDROID_EMU_YUV_Cache ANDROID_EMU_has_shared_slots_host_memory_allocator ANDROID_EMU_sync_buffer_data ANDROID_EMU_read_color_buffer_dma ANDROID_EMU_hwc_multi_configs GL_OES_EGL_image_external_essl3 GL_OES_vertex_array_object GL_KHR_texture_compression_astc_ldr ANDROID_EMU_host_side_tracing ANDROID_EMU_gles_max_version_3_1 
+
+W/OpenGLRenderer( 7450): Failed to choose config with EGL_SWAP_BEHAVIOR_PRESERVED, retrying without...
+
+W/OpenGLRenderer( 7450): Failed to initialize 101010-2 format, error = EGL_SUCCESS
+
+D/EGL_emulation( 7450): eglCreateContext: 0x7970c6c46a50: maj 3 min 1 rcv 4
+
+D/EGL_emulation( 7450): eglMakeCurrent: 0x7970c6c46a50: ver 3 1 (tinfo 0x7972e4616100) (first time)
+
+I/Gralloc4( 7450): mapper 4.x is not supported
+
+W/aybeheer.player( 7450): Verification of java.lang.Object okio.Okio__OkioKt.use(java.io.Closeable, kotlin.jvm.functions.Function1) took 248.057ms (193.50 bytecodes/s) (2672B approximate peak alloc)
+
+W/Gralloc4( 7450): allocator 4.x is not supported
+
+W/aybeheer.player( 7450): Verification of void com.google.android.gms.measurement.internal.zzkz.run() took 293.991ms (176.88 bytecodes/s) (2680B approximate peak alloc)
+
+D/HostConnection( 7450): HostComposition ext ANDROID_EMU_CHECKSUM_HELPER_v1 ANDROID_EMU_native_sync_v2 ANDROID_EMU_native_sync_v3 ANDROID_EMU_native_sync_v4 ANDROID_EMU_dma_v1 ANDROID_EMU_direct_mem ANDROID_EMU_host_composition_v1 ANDROID_EMU_host_composition_v2 ANDROID_EMU_YUV_Cache ANDROID_EMU_has_shared_slots_host_memory_allocator ANDROID_EMU_sync_buffer_data ANDROID_EMU_read_color_buffer_dma ANDROID_EMU_hwc_multi_configs GL_OES_EGL_image_external_essl3 GL_OES_vertex_array_object GL_KHR_texture_compression_astc_ldr ANDROID_EMU_host_side_tracing ANDROID_EMU_gles_max_version_3_1 
+
+I/OpenGLRenderer( 7450): Davey! duration=2138ms; Flags=1, FrameTimelineVsyncId=15135, IntendedVsync=1741047645708, Vsync=1742630978978, InputEventId=0, HandleInputStart=1742637500522, AnimationStart=1742637502965, PerformTraversalsStart=1742638347619, DrawStart=1743049489988, FrameDeadline=1741064312374, FrameInterval=1742637417073, FrameStartTime=16666666, SyncQueued=1743058429999, SyncStart=1743060985138, IssueDrawCommandsStart=1743078343460, SwapBuffers=1743179880002, FrameCompleted=1743188751624, DequeueBufferDuration=4171, QueueBufferDuration=1250505, GpuCompleted=1743188692622, SwapBuffersCompleted=1743188751624, DisplayPresentTime=0, CommandSubmissionCompleted=1743179880002, 
+
+W/Parcel  ( 7450): Expecting binder but got null!
+
+I/Choreographer( 7450): Skipped 41 frames!  The application may be doing too much work on its main thread.
+
+D/MainActivity( 7450): WebView finished loading URL: about:blank
+
+D/MainActivity( 7450): WebView finished loading URL: about:blank
+
+I/OpenGLRenderer( 7450): Davey! duration=733ms; Flags=0, FrameTimelineVsyncId=15848, IntendedVsync=1742647645644, Vsync=1743330978950, InputEventId=0, HandleInputStart=1743350233183, AnimationStart=1743350236014, PerformTraversalsStart=1743356024230, DrawStart=1743356942740, FrameDeadline=1743214312288, FrameInterval=1743339583167, FrameStartTime=16666666, SyncQueued=1743371371457, SyncStart=1743371470260, IssueDrawCommandsStart=1743371508534, SwapBuffers=1743374340734, FrameCompleted=1743381136772, DequeueBufferDuration=3764, QueueBufferDuration=485170, GpuCompleted=1743381136772, SwapBuffersCompleted=1743375310017, DisplayPresentTime=0, CommandSubmissionCompleted=1743374340734, 
+
+D/NetworkModule( 7450): Received response: 200 for https://player-dashboard.onrender.com/api/status
+
+I/okhttp.OkHttpClient( 7450): <-- 200 https://player-dashboard.onrender.com/api/status (911ms)
+
+I/okhttp.OkHttpClient( 7450): date: Thu, 10 Apr 2025 20:07:00 GMT
+
+I/okhttp.OkHttpClient( 7450): content-type: text/html; charset=UTF-8
+
+I/okhttp.OkHttpClient( 7450): access-control-allow-credentials: true
+
+I/okhttp.OkHttpClient( 7450): access-control-expose-headers: X-RateLimit-Limit,X-RateLimit-Remaining,X-RateLimit-Reset
+
+I/okhttp.OkHttpClient( 7450): cache-control: public, max-age=0
+
+I/okhttp.OkHttpClient( 7450): content-security-policy: default-src 'self';script-src 'self' 'unsafe-inline' https://www.google.com https://www.gstatic.com;style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;font-src 'self' https://fonts.gstatic.com;img-src 'self' data: https:;connect-src 'self' wss: ws: https: https://player-dashboard.onrender.com;frame-src 'self' https://www.google.com;object-src 'none';media-src 'self';form-action 'self';upgrade-insecure-requests;base-uri 'self';frame-ancestors 'self';script-src-attr 'none'
+
+I/okhttp.OkHttpClient( 7450): cross-origin-opener-policy: same-origin
+
+I/okhttp.OkHttpClient( 7450): cross-origin-resource-policy: cross-origin
+
+I/okhttp.OkHttpClient( 7450): etag: W/"248-196214da1d0"
+
+I/okhttp.OkHttpClient( 7450): last-modified: Thu, 10 Apr 2025 20:04:18 GMT
+
+I/okhttp.OkHttpClient( 7450): origin-agent-cluster: ?1
+
+I/okhttp.OkHttpClient( 7450): referrer-policy: no-referrer
+
+I/okhttp.OkHttpClient( 7450): rndr-id: d39c7542-dde9-426c
+
+I/okhttp.OkHttpClient( 7450): strict-transport-security: max-age=31536000; includeSubDomains
+
+I/okhttp.OkHttpClient( 7450): vary: Origin
+
+I/okhttp.OkHttpClient( 7450): vary: Accept-Encoding
+
+I/okhttp.OkHttpClient( 7450): x-api-version: v1
+
+I/okhttp.OkHttpClient( 7450): x-content-type-options: nosniff
+
+I/okhttp.OkHttpClient( 7450): x-dns-prefetch-control: off
+
+I/okhttp.OkHttpClient( 7450): x-download-options: noopen
+
+I/okhttp.OkHttpClient( 7450): x-frame-options: SAMEORIGIN
+
+I/okhttp.OkHttpClient( 7450): x-permitted-cross-domain-policies: none
+
+I/okhttp.OkHttpClient( 7450): x-ratelimit-limit: undefined
+
+I/okhttp.OkHttpClient( 7450): x-ratelimit-remaining: undefined
+
+I/okhttp.OkHttpClient( 7450): x-ratelimit-reset: undefined
+
+I/okhttp.OkHttpClient( 7450): x-render-origin-server: Render
+
+I/okhttp.OkHttpClient( 7450): x-xss-protection: 0
+
+I/okhttp.OkHttpClient( 7450): cf-cache-status: DYNAMIC
+
+I/okhttp.OkHttpClient( 7450): server: cloudflare
+
+I/okhttp.OkHttpClient( 7450): cf-ray: 92e4de33adb1adc4-AMS
+
+I/okhttp.OkHttpClient( 7450): alt-svc: h3=":443"; ma=86400
+
+I/okhttp.OkHttpClient( 7450): <!doctype html><html lang="en"><head><meta charset="utf-8"/><link rel="icon" href="/favicon.ico"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="theme-color" content="#000000"/><meta name="description" content="Web site created using create-react-app"/><link rel="apple-touch-icon" href="/logo192.png"/><link rel="manifest" href="/manifest.json"/><title>React App</title><script defer="defer" src="/static/js/main.c735ac9b.js"></script></head><body><noscript>You need to enable JavaScript to run this app.</noscript><div id="root"></div></body></html>
+
+I/okhttp.OkHttpClient( 7450): <-- END HTTP (584-byte body)
+
+D/DeviceRegistrationManager( 7450): API status check: 200 
+
+D/DeviceRegistrationManager( 7450): ✅ API is running and accessible!
+
+D/DeviceRegistrationManager( 7450): ✅ Server seems reachable - proceeding with registration
+
+D/DeviceRegistrationManager( 7450): Registration attempt 1 of 3
+
+D/DeviceRegistrationManager( 7450): Trying public API registration
+
+D/DeviceRegistrationManager( 7450): Using cached device ID: 6ce008eb
+
+D/DeviceRegistrationManager( 7450): Read current URL from prefs for registration: ''
+
+D/DeviceRegistrationManager( 7450): Read company ID from prefs for registration: 'NOCOMPANY'
+
+D/DeviceRegistrationManager( 7450): Trying public registration via /api/public/register-player endpoint
+
+D/DeviceRegistrationManager( 7450): Request data: {device_id=6ce008eb, company_id=NOCOMPANY, name=Android Player - sdk_gphone_x86_64, current_url=, is_online=true}
+
+I/okhttp.OkHttpClient( 7450): --> POST https://player-dashboard.onrender.com/api/public/register-player
+
+I/okhttp.OkHttpClient( 7450): Content-Type: application/json; charset=UTF-8
+
+I/okhttp.OkHttpClient( 7450): Content-Length: 127
+
+I/okhttp.OkHttpClient( 7450): {"device_id":"6ce008eb","company_id":"NOCOMPANY","name":"Android Player - sdk_gphone_x86_64","current_url":"","is_online":true}
+
+I/okhttp.OkHttpClient( 7450): --> END POST (127-byte body)
+
+D/NetworkModule( 7450): Making request to: https://player-dashboard.onrender.com/api/public/register-player
+
+D/NetworkModule( 7450): Using User-Agent: AndroidPlayer/1.0 (Appetize.io; sdk_gphone_x86_64; SDK 33)
+
+I/FA-SVC  ( 6986): App measurement initialized, version: 225014
+
+E/FirebaseMessaging( 7450): Topic sync or token retrieval failed on hard failure exceptions: java.util.concurrent.ExecutionException: java.io.IOException: TOO_MANY_REGISTRATIONS. Won't retry the operation.
+
+D/NetworkModule( 7450): Received response: 200 for https://player-dashboard.onrender.com/api/public/register-player
+
+I/okhttp.OkHttpClient( 7450): <-- 200 https://player-dashboard.onrender.com/api/public/register-player (367ms)
+
+I/okhttp.OkHttpClient( 7450): date: Thu, 10 Apr 2025 20:07:01 GMT
+
+I/okhttp.OkHttpClient( 7450): content-type: application/json; charset=utf-8
+
+I/okhttp.OkHttpClient( 7450): access-control-allow-credentials: true
+
+I/okhttp.OkHttpClient( 7450): access-control-expose-headers: X-RateLimit-Limit,X-RateLimit-Remaining,X-RateLimit-Reset
+
+I/okhttp.OkHttpClient( 7450): content-security-policy: default-src 'self';script-src 'self' 'unsafe-inline' https://www.google.com https://www.gstatic.com;style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;font-src 'self' https://fonts.gstatic.com;img-src 'self' data: https:;connect-src 'self' wss: ws: https: https://player-dashboard.onrender.com;frame-src 'self' https://www.google.com;object-src 'none';media-src 'self';form-action 'self';upgrade-insecure-requests;base-uri 'self';frame-ancestors 'self';script-src-attr 'none'
+
+I/okhttp.OkHttpClient( 7450): cross-origin-opener-policy: same-origin
+
+I/okhttp.OkHttpClient( 7450): cross-origin-resource-policy: cross-origin
+
+I/okhttp.OkHttpClient( 7450): etag: W/"fc-2McTiYJp6hMaT5eoZud1IAA+VH4"
+
+I/okhttp.OkHttpClient( 7450): origin-agent-cluster: ?1
+
+I/okhttp.OkHttpClient( 7450): ratelimit-limit: 100
+
+I/okhttp.OkHttpClient( 7450): ratelimit-policy: 100;w=900
+
+I/okhttp.OkHttpClient( 7450): ratelimit-remaining: 99
+
+I/okhttp.OkHttpClient( 7450): ratelimit-reset: 900
+
+I/okhttp.OkHttpClient( 7450): referrer-policy: no-referrer
+
+I/okhttp.OkHttpClient( 7450): rndr-id: a4501ad4-5ab9-40bb
+
+I/okhttp.OkHttpClient( 7450): strict-transport-security: max-age=31536000; includeSubDomains
+
+I/okhttp.OkHttpClient( 7450): vary: Origin
+
+I/okhttp.OkHttpClient( 7450): vary: Accept-Encoding
+
+I/okhttp.OkHttpClient( 7450): x-api-version: v1
+
+I/okhttp.OkHttpClient( 7450): x-content-type-options: nosniff
+
+I/okhttp.OkHttpClient( 7450): x-dns-prefetch-control: off
+
+I/okhttp.OkHttpClient( 7450): x-download-options: noopen
+
+I/okhttp.OkHttpClient( 7450): x-frame-options: SAMEORIGIN
+
+I/okhttp.OkHttpClient( 7450): x-permitted-cross-domain-policies: none
+
+I/okhttp.OkHttpClient( 7450): x-ratelimit-limit: 100
+
+I/okhttp.OkHttpClient( 7450): x-ratelimit-remaining: 99
+
+I/okhttp.OkHttpClient( 7450): x-ratelimit-reset: undefined
+
+I/okhttp.OkHttpClient( 7450): x-render-origin-server: Render
+
+I/okhttp.OkHttpClient( 7450): x-xss-protection: 0
+
+I/okhttp.OkHttpClient( 7450): cf-cache-status: DYNAMIC
+
+I/okhttp.OkHttpClient( 7450): server: cloudflare
+
+I/okhttp.OkHttpClient( 7450): cf-ray: 92e4de355a73adc4-AMS
+
+I/okhttp.OkHttpClient( 7450): alt-svc: h3=":443"; ma=86400
+
+I/okhttp.OkHttpClient( 7450): {"message":"Player already registered","player":{"_id":"67f811f81eace6bab59913f0","device_id":"6ce008eb","company_id":"NOCOMPANY","current_url":"","is_online":false,"createdAt":"2025-04-10T18:46:16.769Z","last_seen":"2025-04-10T18:48:18.503Z","__v":0}}
+
+I/okhttp.OkHttpClient( 7450): <-- END HTTP (252-byte body)
+
+D/DeviceRegistrationManager( 7450): Public registration response: 200 
+
+D/DeviceRegistrationManager( 7450): ✅ Public API player registration successful!
+
+D/DeviceRegistrationManager( 7450): ✅ Success with public API registration
+
+D/DeviceRegistrationManager( 7450): ✅ Registration succeeded on attempt 1
+
+D/DeviceRegistrationManager( 7450): Starting heartbeat service despite registration issues
+
+D/HeartbeatService( 7450): Performing heartbeat...
+
+D/DeviceRegistrationManager( 7450): Using cached device ID: 6ce008eb
+
+D/HeartbeatService( 7450): Using player ID: 6ce008eb
+
+D/HeartbeatService( 7450): Device stats: DeviceStats(battery_level=100.0, disk_space=2369056768, memory_usage=11828232, ip_address='10.0.2.15', cpu_usage=0.0)
+
+D/HeartbeatService( 7450): Current URL: 
+
+D/HeartbeatService( 7450): Current Company ID: NOCOMPANY
+
+D/HeartbeatService( 7450): Heartbeat request payload: HeartbeatRequest(device_id=6ce008eb, last_seen=1744315621073, device_stats=DeviceStats(battery_level=100.0, disk_space=2369056768, memory_usage=11828232, ip_address='10.0.2.15', cpu_usage=0.0), status=online, last_error=null, current_url=, battery_level=100, disk_space=2369056768, company_id=NOCOMPANY)
+
+I/okhttp.OkHttpClient( 7450): --> PUT https://player-dashboard.onrender.com/api/players/6ce008eb/heartbeat
+
+I/okhttp.OkHttpClient( 7450): Content-Type: application/json; charset=UTF-8
+
+I/okhttp.OkHttpClient( 7450): Content-Length: 280
+
+I/okhttp.OkHttpClient( 7450): {"player_id":"6ce008eb","lastSeen":1744315621073,"deviceStats":{"battery_level":100.0,"disk_space":2369056768,"memory_usage":11828232,"ip_address":"10.0.2.15","cpu_usage":0.0},"status":"online","current_url":"","battery_level":100,"disk_space":2369056768,"company_id":"NOCOMPANY"}
+
+I/okhttp.OkHttpClient( 7450): --> END PUT (280-byte body)
+
+D/NetworkModule( 7450): Making request to: https://player-dashboard.onrender.com/api/players/6ce008eb/heartbeat
+
+D/NetworkModule( 7450): Using User-Agent: AndroidPlayer/1.0 (Appetize.io; sdk_gphone_x86_64; SDK 33)
+
+D/CompatibilityChangeReporter( 7450): Compat change id reported: 78294732; UID 10170; state: ENABLED
+
+D/MainActivity( 7450): Notification permission granted: true
+
+D/EGL_emulation( 7450): app_time_stats: avg=108.67ms min=13.87ms max=841.78ms count=11
+
+I/FA-SVC  ( 6986): Install Referrer Reporter is not available
+
+D/NetworkModule( 7450): Received response: 200 for https://player-dashboard.onrender.com/api/players/6ce008eb/heartbeat
+
+I/okhttp.OkHttpClient( 7450): <-- 200 https://player-dashboard.onrender.com/api/players/6ce008eb/heartbeat (930ms)
+
+I/okhttp.OkHttpClient( 7450): date: Thu, 10 Apr 2025 20:07:02 GMT
+
+I/okhttp.OkHttpClient( 7450): content-type: application/json; charset=utf-8
+
+I/okhttp.OkHttpClient( 7450): access-control-allow-credentials: true
+
+I/okhttp.OkHttpClient( 7450): access-control-expose-headers: X-RateLimit-Limit,X-RateLimit-Remaining,X-RateLimit-Reset
+
+I/okhttp.OkHttpClient( 7450): content-security-policy: default-src 'self';script-src 'self' 'unsafe-inline' https://www.google.com https://www.gstatic.com;style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;font-src 'self' https://fonts.gstatic.com;img-src 'self' data: https:;connect-src 'self' wss: ws: https: https://player-dashboard.onrender.com;frame-src 'self' https://www.google.com;object-src 'none';media-src 'self';form-action 'self';upgrade-insecure-requests;base-uri 'self';frame-ancestors 'self';script-src-attr 'none'
+
+I/okhttp.OkHttpClient( 7450): cross-origin-opener-policy: same-origin
+
+I/okhttp.OkHttpClient( 7450): cross-origin-resource-policy: cross-origin
+
+I/okhttp.OkHttpClient( 7450): etag: W/"10-oV4hJxRVSENxc/wX8+mA4/Pe4tA"
+
+I/okhttp.OkHttpClient( 7450): origin-agent-cluster: ?1
+
+I/okhttp.OkHttpClient( 7450): ratelimit-limit: 100
+
+I/okhttp.OkHttpClient( 7450): ratelimit-policy: 100;w=900
+
+I/okhttp.OkHttpClient( 7450): ratelimit-remaining: 99
+
+I/okhttp.OkHttpClient( 7450): ratelimit-reset: 900
+
+I/okhttp.OkHttpClient( 7450): referrer-policy: no-referrer
+
+I/okhttp.OkHttpClient( 7450): rndr-id: 93180170-2723-4179
+
+I/okhttp.OkHttpClient( 7450): strict-transport-security: max-age=31536000; includeSubDomains
+
+I/okhttp.OkHttpClient( 7450): vary: Origin
+
+I/okhttp.OkHttpClient( 7450): vary: Accept-Encoding
+
+I/okhttp.OkHttpClient( 7450): x-api-version: v1
+
+I/okhttp.OkHttpClient( 7450): x-content-type-options: nosniff
+
+I/okhttp.OkHttpClient( 7450): x-dns-prefetch-control: off
+
+I/okhttp.OkHttpClient( 7450): x-download-options: noopen
+
+I/okhttp.OkHttpClient( 7450): x-frame-options: SAMEORIGIN
+
+I/okhttp.OkHttpClient( 7450): x-permitted-cross-domain-policies: none
+
+I/okhttp.OkHttpClient( 7450): x-ratelimit-limit: 100
+
+I/okhttp.OkHttpClient( 7450): x-ratelimit-remaining: 99
+
+I/okhttp.OkHttpClient( 7450): x-ratelimit-reset: undefined
+
+I/okhttp.OkHttpClient( 7450): x-render-origin-server: Render
+
+I/okhttp.OkHttpClient( 7450): x-xss-protection: 0
+
+I/okhttp.OkHttpClient( 7450): cf-cache-status: DYNAMIC
+
+I/okhttp.OkHttpClient( 7450): server: cloudflare
+
+I/okhttp.OkHttpClient( 7450): cf-ray: 92e4de381a27adc4-AMS
+
+I/okhttp.OkHttpClient( 7450): alt-svc: h3=":443"; ma=86400
+
+I/okhttp.OkHttpClient( 7450): {"success":true}
+
+I/okhttp.OkHttpClient( 7450): <-- END HTTP (16-byte body)
+
+D/HeartbeatService( 7450): Standard heartbeat successful
+
+D/HeartbeatService( 7450): Fetching commands for player ID: 6ce008eb
+
+I/FA      ( 7808): App measurement initialized, version: 75066
+
+I/FA      ( 7808): To enable debug logging run: adb shell setprop log.tag.FA VERBOSE
+
+I/FA      ( 7808): To enable faster debug mode event logging run:
+
+I/FA      ( 7808):   adb shell setprop debug.firebase.analytics.app com.google.android.apps.youtube.music
+
+I/okhttp.OkHttpClient( 7450): --> GET https://player-dashboard.onrender.com/api/players/6ce008eb/commands?status=pending
+
+I/okhttp.OkHttpClient( 7450): --> END GET
+
+D/NetworkModule( 7450): Making request to: https://player-dashboard.onrender.com/api/players/6ce008eb/commands?status=pending
+
+D/NetworkModule( 7450): Using User-Agent: AndroidPlayer/1.0 (Appetize.io; sdk_gphone_x86_64; SDK 33)
+
+D/NetworkModule( 7450): Received response: 200 for https://player-dashboard.onrender.com/api/players/6ce008eb/commands?status=pending
+
+I/okhttp.OkHttpClient( 7450): <-- 200 https://player-dashboard.onrender.com/api/players/6ce008eb/commands?status=pending (208ms)
+
+I/okhttp.OkHttpClient( 7450): date: Thu, 10 Apr 2025 20:07:02 GMT
+
+I/okhttp.OkHttpClient( 7450): content-type: text/html; charset=UTF-8
+
+I/okhttp.OkHttpClient( 7450): access-control-allow-credentials: true
+
+I/okhttp.OkHttpClient( 7450): access-control-expose-headers: X-RateLimit-Limit,X-RateLimit-Remaining,X-RateLimit-Reset
+
+I/okhttp.OkHttpClient( 7450): cache-control: public, max-age=0
+
+I/okhttp.OkHttpClient( 7450): content-security-policy: default-src 'self';script-src 'self' 'unsafe-inline' https://www.google.com https://www.gstatic.com;style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;font-src 'self' https://fonts.gstatic.com;img-src 'self' data: https:;connect-src 'self' wss: ws: https: https://player-dashboard.onrender.com;frame-src 'self' https://www.google.com;object-src 'none';media-src 'self';form-action 'self';upgrade-insecure-requests;base-uri 'self';frame-ancestors 'self';script-src-attr 'none'
+
+I/okhttp.OkHttpClient( 7450): cross-origin-opener-policy: same-origin
+
+I/okhttp.OkHttpClient( 7450): cross-origin-resource-policy: cross-origin
+
+I/okhttp.OkHttpClient( 7450): etag: W/"248-196214da1d0"
+
+I/okhttp.OkHttpClient( 7450): last-modified: Thu, 10 Apr 2025 20:04:18 GMT
+
+I/okhttp.OkHttpClient( 7450): origin-agent-cluster: ?1
+
+I/okhttp.OkHttpClient( 7450): ratelimit-limit: 600
+
+I/okhttp.OkHttpClient( 7450): ratelimit-policy: 600;w=60
+
+I/okhttp.OkHttpClient( 7450): ratelimit-remaining: 597
+
+I/okhttp.OkHttpClient( 7450): ratelimit-reset: 3
+
+I/okhttp.OkHttpClient( 7450): referrer-policy: no-referrer
+
+I/okhttp.OkHttpClient( 7450): rndr-id: 9c83ed6f-aff6-4a90
+
+I/okhttp.OkHttpClient( 7450): strict-transport-security: max-age=31536000; includeSubDomains
+
+I/okhttp.OkHttpClient( 7450): vary: Origin
+
+I/okhttp.OkHttpClient( 7450): vary: Accept-Encoding
+
+I/okhttp.OkHttpClient( 7450): x-api-version: v1
+
+I/okhttp.OkHttpClient( 7450): x-content-type-options: nosniff
+
+I/okhttp.OkHttpClient( 7450): x-dns-prefetch-control: off
+
+I/okhttp.OkHttpClient( 7450): x-download-options: noopen
+
+I/okhttp.OkHttpClient( 7450): x-frame-options: SAMEORIGIN
+
+I/okhttp.OkHttpClient( 7450): x-permitted-cross-domain-policies: none
+
+I/okhttp.OkHttpClient( 7450): x-ratelimit-limit: 600
+
+I/okhttp.OkHttpClient( 7450): x-ratelimit-remaining: 597
+
+I/okhttp.OkHttpClient( 7450): x-ratelimit-reset: undefined
+
+I/okhttp.OkHttpClient( 7450): x-render-origin-server: Render
+
+I/okhttp.OkHttpClient( 7450): x-xss-protection: 0
+
+I/okhttp.OkHttpClient( 7450): cf-cache-status: DYNAMIC
+
+I/okhttp.OkHttpClient( 7450): server: cloudflare
+
+I/okhttp.OkHttpClient( 7450): cf-ray: 92e4de40188cadc4-AMS
+
+I/okhttp.OkHttpClient( 7450): alt-svc: h3=":443"; ma=86400
+
+I/okhttp.OkHttpClient( 7450): <!doctype html><html lang="en"><head><meta charset="utf-8"/><link rel="icon" href="/favicon.ico"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="theme-color" content="#000000"/><meta name="description" content="Web site created using create-react-app"/><link rel="apple-touch-icon" href="/logo192.png"/><link rel="manifest" href="/manifest.json"/><title>React App</title><script defer="defer" src="/static/js/main.c735ac9b.js"></script></head><body><noscript>You need to enable JavaScript to run this app.</noscript><div id="root"></div></body></html>
+
+I/okhttp.OkHttpClient( 7450): <-- END HTTP (584-byte body)
+
+E/HeartbeatService( 7450): Error fetching commands
+
+E/HeartbeatService( 7450): com.squareup.moshi.JsonDataException: Expected BEGIN_ARRAY but was STRING at path $
+
+E/HeartbeatService( 7450): 	at com.squareup.moshi.JsonUtf8Reader.beginArray(JsonUtf8Reader.java:144)
+
+E/HeartbeatService( 7450): 	at com.squareup.moshi.CollectionJsonAdapter.fromJson(CollectionJsonAdapter.java:79)
+
+E/HeartbeatService( 7450): 	at com.squareup.moshi.CollectionJsonAdapter$2.fromJson(CollectionJsonAdapter.java:55)
+
+E/HeartbeatService( 7450): 	at com.squareup.moshi.internal.NullSafeJsonAdapter.fromJson(NullSafeJsonAdapter.java:41)
+
+E/HeartbeatService( 7450): 	at com.squareup.moshi.JsonAdapter$2.fromJson(JsonAdapter.java:205)
+
+E/HeartbeatService( 7450): 	at retrofit2.converter.moshi.MoshiResponseBodyConverter.convert(MoshiResponseBodyConverter.java:46)
+
+E/HeartbeatService( 7450): 	at retrofit2.converter.moshi.MoshiResponseBodyConverter.convert(MoshiResponseBodyConverter.java:27)
+
+E/HeartbeatService( 7450): 	at retrofit2.OkHttpCall.parseResponse(OkHttpCall.java:243)
+
+E/HeartbeatService( 7450): 	at retrofit2.OkHttpCall$1.onResponse(OkHttpCall.java:153)
+
+E/HeartbeatService( 7450): 	at okhttp3.internal.connection.RealCall$AsyncCall.run(RealCall.kt:519)
+
+E/HeartbeatService( 7450): 	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1137)
+
+E/HeartbeatService( 7450): 	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:637)
+
+E/HeartbeatService( 7450): 	at java.lang.Thread.run(Thread.java:1012)
+
+D/HeartbeatService( 7450): Heartbeat sent successfully
+
+D/ProfileInstaller( 7450): Installing profile for com.displaybeheer.player
+
+D/MainActivity( 7450): Starting heartbeat service
+
+D/MainActivity( 7450): Heartbeat service started
+
+D/MainActivity( 7450): App initialization complete
+
+I/FA      ( 8229): App measurement initialized, version: 75066
+
+I/FA      ( 8229): To enable debug logging run: adb shell setprop log.tag.FA VERBOSE
+
+I/FA      ( 8229): To enable faster debug mode event logging run:
+
+I/FA      ( 8229):   adb shell setprop debug.firebase.analytics.app com.google.android.youtube
+
+D/HeartbeatService( 7450): Performing heartbeat...
+
+D/DeviceRegistrationManager( 7450): Using cached device ID: 6ce008eb
+
+D/HeartbeatService( 7450): Using player ID: 6ce008eb
+
+D/HeartbeatService( 7450): Device stats: DeviceStats(battery_level=100.0, disk_space=2368884736, memory_usage=7850592, ip_address='10.0.2.15', cpu_usage=0.0)
+
+D/HeartbeatService( 7450): Current URL: 
+
+D/HeartbeatService( 7450): Current Company ID: NOCOMPANY
+
+D/HeartbeatService( 7450): Heartbeat request payload: HeartbeatRequest(device_id=6ce008eb, last_seen=1744315682575, device_stats=DeviceStats(battery_level=100.0, disk_space=2368884736, memory_usage=7850592, ip_address='10.0.2.15', cpu_usage=0.0), status=online, last_error=null, current_url=, battery_level=100, disk_space=2368884736, company_id=NOCOMPANY)
+
+I/okhttp.OkHttpClient( 7450): --> PUT https://player-dashboard.onrender.com/api/players/6ce008eb/heartbeat
+
+I/okhttp.OkHttpClient( 7450): Content-Type: application/json; charset=UTF-8
+
+I/okhttp.OkHttpClient( 7450): Content-Length: 279
+
+I/okhttp.OkHttpClient( 7450): {"player_id":"6ce008eb","lastSeen":1744315682575,"deviceStats":{"battery_level":100.0,"disk_space":2368884736,"memory_usage":7850592,"ip_address":"10.0.2.15","cpu_usage":0.0},"status":"online","current_url":"","battery_level":100,"disk_space":2368884736,"company_id":"NOCOMPANY"}
+
+I/okhttp.OkHttpClient( 7450): --> END PUT (279-byte body)
+
+D/NetworkModule( 7450): Making request to: https://player-dashboard.onrender.com/api/players/6ce008eb/heartbeat
+
+D/NetworkModule( 7450): Using User-Agent: AndroidPlayer/1.0 (Appetize.io; sdk_gphone_x86_64; SDK 33)
+
+D/NetworkModule( 7450): Received response: 200 for https://player-dashboard.onrender.com/api/players/6ce008eb/heartbeat
+
+I/okhttp.OkHttpClient( 7450): <-- 200 https://player-dashboard.onrender.com/api/players/6ce008eb/heartbeat (905ms)
+
+I/okhttp.OkHttpClient( 7450): date: Thu, 10 Apr 2025 20:08:03 GMT
+
+I/okhttp.OkHttpClient( 7450): content-type: application/json; charset=utf-8
+
+I/okhttp.OkHttpClient( 7450): access-control-allow-credentials: true
+
+I/okhttp.OkHttpClient( 7450): access-control-expose-headers: X-RateLimit-Limit,X-RateLimit-Remaining,X-RateLimit-Reset
+
+I/okhttp.OkHttpClient( 7450): content-security-policy: default-src 'self';script-src 'self' 'unsafe-inline' https://www.google.com https://www.gstatic.com;style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;font-src 'self' https://fonts.gstatic.com;img-src 'self' data: https:;connect-src 'self' wss: ws: https: https://player-dashboard.onrender.com;frame-src 'self' https://www.google.com;object-src 'none';media-src 'self';form-action 'self';upgrade-insecure-requests;base-uri 'self';frame-ancestors 'self';script-src-attr 'none'
+
+I/okhttp.OkHttpClient( 7450): cross-origin-opener-policy: same-origin
+
+I/okhttp.OkHttpClient( 7450): cross-origin-resource-policy: cross-origin
+
+I/okhttp.OkHttpClient( 7450): etag: W/"10-oV4hJxRVSENxc/wX8+mA4/Pe4tA"
+
+I/okhttp.OkHttpClient( 7450): origin-agent-cluster: ?1
+
+I/okhttp.OkHttpClient( 7450): ratelimit-limit: 100
+
+I/okhttp.OkHttpClient( 7450): ratelimit-policy: 100;w=900
+
+I/okhttp.OkHttpClient( 7450): ratelimit-remaining: 99
+
+I/okhttp.OkHttpClient( 7450): ratelimit-reset: 900
+
+I/okhttp.OkHttpClient( 7450): referrer-policy: no-referrer
+
+I/okhttp.OkHttpClient( 7450): rndr-id: a71f12dd-b290-44a2
+
+I/okhttp.OkHttpClient( 7450): strict-transport-security: max-age=31536000; includeSubDomains
+
+I/okhttp.OkHttpClient( 7450): vary: Origin
+
+I/okhttp.OkHttpClient( 7450): vary: Accept-Encoding
+
+I/okhttp.OkHttpClient( 7450): x-api-version: v1
+
+I/okhttp.OkHttpClient( 7450): x-content-type-options: nosniff
+
+I/okhttp.OkHttpClient( 7450): x-dns-prefetch-control: off
+
+I/okhttp.OkHttpClient( 7450): x-download-options: noopen
+
+I/okhttp.OkHttpClient( 7450): x-frame-options: SAMEORIGIN
+
+I/okhttp.OkHttpClient( 7450): x-permitted-cross-domain-policies: none
+
+I/okhttp.OkHttpClient( 7450): x-ratelimit-limit: 100
+
+I/okhttp.OkHttpClient( 7450): x-ratelimit-remaining: 99
+
+I/okhttp.OkHttpClient( 7450): x-ratelimit-reset: undefined
+
+I/okhttp.OkHttpClient( 7450): x-render-origin-server: Render
+
+I/okhttp.OkHttpClient( 7450): x-xss-protection: 0
+
+I/okhttp.OkHttpClient( 7450): cf-cache-status: DYNAMIC
+
+I/okhttp.OkHttpClient( 7450): server: cloudflare
+
+I/okhttp.OkHttpClient( 7450): cf-ray: 92e4dfb86a1aadc4-AMS
+
+I/okhttp.OkHttpClient( 7450): alt-svc: h3=":443"; ma=86400
+
+I/okhttp.OkHttpClient( 7450): {"success":true}
+
+I/okhttp.OkHttpClient( 7450): <-- END HTTP (16-byte body)
+
+D/HeartbeatService( 7450): Standard heartbeat successful
+
+D/HeartbeatService( 7450): Fetching commands for player ID: 6ce008eb
+
+I/okhttp.OkHttpClient( 7450): --> GET https://player-dashboard.onrender.com/api/players/6ce008eb/commands?status=pending
+
+I/okhttp.OkHttpClient( 7450): --> END GET
+
+D/NetworkModule( 7450): Making request to: https://player-dashboard.onrender.com/api/players/6ce008eb/commands?status=pending
+
+D/NetworkModule( 7450): Using User-Agent: AndroidPlayer/1.0 (Appetize.io; sdk_gphone_x86_64; SDK 33)
+
+D/NetworkModule( 7450): Received response: 200 for https://player-dashboard.onrender.com/api/players/6ce008eb/commands?status=pending
+
+I/okhttp.OkHttpClient( 7450): <-- 200 https://player-dashboard.onrender.com/api/players/6ce008eb/commands?status=pending (194ms)
+
+I/okhttp.OkHttpClient( 7450): date: Thu, 10 Apr 2025 20:08:03 GMT
+
+I/okhttp.OkHttpClient( 7450): content-type: text/html; charset=UTF-8
+
+I/okhttp.OkHttpClient( 7450): access-control-allow-credentials: true
+
+I/okhttp.OkHttpClient( 7450): access-control-expose-headers: X-RateLimit-Limit,X-RateLimit-Remaining,X-RateLimit-Reset
+
+I/okhttp.OkHttpClient( 7450): cache-control: public, max-age=0
+
+I/okhttp.OkHttpClient( 7450): content-security-policy: default-src 'self';script-src 'self' 'unsafe-inline' https://www.google.com https://www.gstatic.com;style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;font-src 'self' https://fonts.gstatic.com;img-src 'self' data: https:;connect-src 'self' wss: ws: https: https://player-dashboard.onrender.com;frame-src 'self' https://www.google.com;object-src 'none';media-src 'self';form-action 'self';upgrade-insecure-requests;base-uri 'self';frame-ancestors 'self';script-src-attr 'none'
+
+I/okhttp.OkHttpClient( 7450): cross-origin-opener-policy: same-origin
+
+I/okhttp.OkHttpClient( 7450): cross-origin-resource-policy: cross-origin
+
+I/okhttp.OkHttpClient( 7450): etag: W/"248-196214da1d0"
+
+I/okhttp.OkHttpClient( 7450): last-modified: Thu, 10 Apr 2025 20:04:18 GMT
+
+I/okhttp.OkHttpClient( 7450): origin-agent-cluster: ?1
+
+I/okhttp.OkHttpClient( 7450): ratelimit-limit: 600
+
+I/okhttp.OkHttpClient( 7450): ratelimit-policy: 600;w=60
+
+I/okhttp.OkHttpClient( 7450): ratelimit-remaining: 598
+
+I/okhttp.OkHttpClient( 7450): ratelimit-reset: 60
+
+I/okhttp.OkHttpClient( 7450): referrer-policy: no-referrer
+
+I/okhttp.OkHttpClient( 7450): rndr-id: 81714baa-0068-4fd4
+
+I/okhttp.OkHttpClient( 7450): strict-transport-security: max-age=31536000; includeSubDomains
+
+I/okhttp.OkHttpClient( 7450): vary: Origin
+
+I/okhttp.OkHttpClient( 7450): vary: Accept-Encoding
+
+I/okhttp.OkHttpClient( 7450): x-api-version: v1
+
+I/okhttp.OkHttpClient( 7450): x-content-type-options: nosniff
+
+I/okhttp.OkHttpClient( 7450): x-dns-prefetch-control: off
+
+I/okhttp.OkHttpClient( 7450): x-download-options: noopen
+
+I/okhttp.OkHttpClient( 7450): x-frame-options: SAMEORIGIN
+
+I/okhttp.OkHttpClient( 7450): x-permitted-cross-domain-policies: none
+
+I/okhttp.OkHttpClient( 7450): x-ratelimit-limit: 600
+
+I/okhttp.OkHttpClient( 7450): x-ratelimit-remaining: 598
+
+I/okhttp.OkHttpClient( 7450): x-ratelimit-reset: undefined
+
+I/okhttp.OkHttpClient( 7450): x-render-origin-server: Render
+
+I/okhttp.OkHttpClient( 7450): x-xss-protection: 0
+
+I/okhttp.OkHttpClient( 7450): cf-cache-status: DYNAMIC
+
+I/okhttp.OkHttpClient( 7450): server: cloudflare
+
+I/okhttp.OkHttpClient( 7450): cf-ray: 92e4dfbe2877adc4-AMS
+
+I/okhttp.OkHttpClient( 7450): alt-svc: h3=":443"; ma=86400
+
+I/okhttp.OkHttpClient( 7450): <!doctype html><html lang="en"><head><meta charset="utf-8"/><link rel="icon" href="/favicon.ico"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="theme-color" content="#000000"/><meta name="description" content="Web site created using create-react-app"/><link rel="apple-touch-icon" href="/logo192.png"/><link rel="manifest" href="/manifest.json"/><title>React App</title><script defer="defer" src="/static/js/main.c735ac9b.js"></script></head><body><noscript>You need to enable JavaScript to run this app.</noscript><div id="root"></div></body></html>
+
+I/okhttp.OkHttpClient( 7450): <-- END HTTP (584-byte body)
+
+E/HeartbeatService( 7450): Error fetching commands
+
+E/HeartbeatService( 7450): com.squareup.moshi.JsonDataException: Expected BEGIN_ARRAY but was STRING at path $
+
+E/HeartbeatService( 7450): 	at com.squareup.moshi.JsonUtf8Reader.beginArray(JsonUtf8Reader.java:144)
+
+E/HeartbeatService( 7450): 	at com.squareup.moshi.CollectionJsonAdapter.fromJson(CollectionJsonAdapter.java:79)
+
+E/HeartbeatService( 7450): 	at com.squareup.moshi.CollectionJsonAdapter$2.fromJson(CollectionJsonAdapter.java:55)
+
+E/HeartbeatService( 7450): 	at com.squareup.moshi.internal.NullSafeJsonAdapter.fromJson(NullSafeJsonAdapter.java:41)
+
+E/HeartbeatService( 7450): 	at com.squareup.moshi.JsonAdapter$2.fromJson(JsonAdapter.java:205)
+
+E/HeartbeatService( 7450): 	at retrofit2.converter.moshi.MoshiResponseBodyConverter.convert(MoshiResponseBodyConverter.java:46)
+
+E/HeartbeatService( 7450): 	at retrofit2.converter.moshi.MoshiResponseBodyConverter.convert(MoshiResponseBodyConverter.java:27)
+
+E/HeartbeatService( 7450): 	at retrofit2.OkHttpCall.parseResponse(OkHttpCall.java:243)
+
+E/HeartbeatService( 7450): 	at retrofit2.OkHttpCall$1.onResponse(OkHttpCall.java:153)
+
+E/HeartbeatService( 7450): 	at okhttp3.internal.connection.RealCall$AsyncCall.run(RealCall.kt:519)
+
+E/HeartbeatService( 7450): 	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1137)
+
+E/HeartbeatService( 7450): 	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:637)
+
+E/HeartbeatService( 7450): 	at java.lang.Thread.run(Thread.java:1012)
+
+D/HeartbeatService( 7450): Heartbeat sent successfully
+
+I/FA      ( 8835): App measurement initialized, version: 75066
+
+I/FA      ( 8835): To enable debug logging run: adb shell setprop log.tag.FA VERBOSE
+
+I/FA      ( 8835): To enable faster debug mode event logging run:
+
+I/FA      ( 8835):   adb shell setprop debug.firebase.analytics.app com.google.android.apps.youtube.music

@@ -2495,11 +2495,7 @@ app.get('/api/players/:playerId/commands', async (req, res) => {
 
     secureLog.debug(`Command fetch request for player: ${playerId}, status: ${status}`);
 
-    // TODO: Add authentication/authorization if needed. 
-    // For now, assume player fetching its own commands is okay if device_id matches.
-
     try {
-        // Find the player by device_id to get the internal MongoDB _id
         const player = await Player.findOne({ device_id: playerId });
         if (!player) {
             secureLog.warn(`Command fetch: Player not found for device_id: ${playerId}`);
@@ -2509,17 +2505,14 @@ app.get('/api/players/:playerId/commands', async (req, res) => {
         const playerMongoId = player._id;
         secureLog.debug(`Command fetch: Found player Mongo ID: ${playerMongoId} for device ID: ${playerId}`);
 
-        // Define query based on status
         const query = { 
             player_id: playerMongoId,
-            status: status || 'pending' // Default to pending if status not provided
+            status: status || 'pending' 
         };
 
-        // Find pending commands for this player
-        const commands = await Command.find(query).sort({ createdAt: 1 }); // Fetch oldest first
+        const commands = await Command.find(query).sort({ createdAt: 1 }); 
         secureLog.debug(`Command fetch: Found ${commands.length} commands for player ${playerId} with status ${query.status}`);
 
-        // Update status of fetched commands to 'delivered' (or 'processing')
         if (commands.length > 0) {
             const commandIds = commands.map(cmd => cmd._id);
             try {
@@ -2530,14 +2523,18 @@ app.get('/api/players/:playerId/commands', async (req, res) => {
                 secureLog.debug(`Command fetch: Marked ${commandIds.length} commands as delivered for player ${playerId}`);
             } catch (updateError) {
                 secureLog.error(`Command fetch: Error marking commands as delivered for player ${playerId}:`, updateError);
-                // Proceed with returning commands, but log the error
             }
         }
-
-        // Return the commands
+        
+        // Explicitly set content type to JSON
+        res.setHeader('Content-Type', 'application/json');
         res.json(commands);
     } catch (error) {
         secureLog.error(`Error fetching commands for player ${playerId}:`, error);
-        res.status(500).json({ error: 'Internal server error' });
+        // Ensure JSON error response
+        if (!res.headersSent) {
+             res.setHeader('Content-Type', 'application/json');
+             res.status(500).json({ error: 'Internal server error' });
+        }
     }
 });
