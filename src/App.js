@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
@@ -19,9 +19,14 @@ import PerformanceTab from './components/Admin/PerformanceTab.js';
 
 // Forms
 import CreateUser from './components/Forms/CreateUser.js';
-import CreateProfile from './components/Forms/CreateProfile.js';
 import CreateCompany from './components/Forms/CreateCompany.js';
 import CreatePlayer from './components/Forms/CreatePlayer.js';
+
+// Groups
+import GroupManagement from './components/Groups/GroupManagement.js';
+
+// Health
+import HealthMonitoring from './components/Health/HealthMonitoring.js';
 
 // Layouts
 import NavBar from './components/Layouts/Navbar.js';
@@ -94,13 +99,13 @@ function AppContent() {
   const [notification, setNotification] = useState(null);
 
   // Create default functions that will be used if context is null
-  const defaultSetProfile = (user) => {
+  const defaultSetProfile = useCallback((user) => {
     console.warn('setProfile called before context was ready', user);
-  };
+  }, []);
   
-  const defaultLogout = () => {
+  const defaultLogout = useCallback(() => {
     console.warn('logout called before context was ready');
-  };
+  }, []);
 
   // Use null-safe destructuring for the context
   const setProfile = userContext?.setProfile || defaultSetProfile;
@@ -154,7 +159,7 @@ function AppContent() {
     }
     
     checkSession();
-  }, [setProfile]);
+  }, [defaultSetProfile, setProfile]);
 
   // Handle authentication expiration
   useEffect(() => {
@@ -235,10 +240,6 @@ function AppContent() {
       ),
     },
     {
-      path: '/create-profile',
-      element: <CreateProfile />,
-    },
-    {
       path: '/create-user',
       element: (
         <ProtectedRoute allowedRoles={['superadmin', 'bedrijfsadmin']}>
@@ -280,6 +281,24 @@ function AppContent() {
         <ProtectedRoute allowedRoles={['superadmin', 'bedrijfsadmin']}>
           <NavBar />
           <UserManagement />
+        </ProtectedRoute>
+      ),
+    },
+    {
+      path: '/groups',
+      element: (
+        <ProtectedRoute allowedRoles={['superadmin', 'bedrijfsadmin']}>
+          <NavBar />
+          <GroupManagement />
+        </ProtectedRoute>
+      ),
+    },
+    {
+      path: '/health',
+      element: (
+        <ProtectedRoute allowedRoles={['superadmin', 'bedrijfsadmin']}>
+          <NavBar />
+          <HealthMonitoring />
         </ProtectedRoute>
       ),
     },

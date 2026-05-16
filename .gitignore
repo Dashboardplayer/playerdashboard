@@ -4,15 +4,16 @@
 /node_modules
 /.pnp
 .pnp.js
+/.cache
 
 # testing
 /coverage
 
 # production
 /build
+/dist
 
 # Specific files to ignore
-playerdashbpardapp
 readme.md
 check_mongodb.js
 check_player.js
@@ -20,6 +21,9 @@ verify_player.js
 
 # misc
 .DS_Store
+.env.backup*
+.env*.backup*
+*.backup
 .env
 .env.local
 .env.development.local
@@ -41,8 +45,40 @@ firebase-service-account.json
 # Logs
 logs
 *.log
+*.har
+*.trace
+*.tmp
+*.temp
+debug*.txt
+*debug log*.txt
 
 src/superbaseClient.js
 
 # Environment variables
 .env.*.local
+
+# Runtime uploads and generated media
+/public/uploads/
+/uploads/
+/screenshots/
+/playerdashboard/uploads/
+/playerdashboard/screenshots/
+
+# Android build artifacts
+/playerdashboardapp/
+/playerdashboardapp/.gradle/
+/playerdashboardapp/build/
+/playerdashboardapp/app/build/
+/playerdashboardapp/local.properties
+/playerdashboardapp/captures/
+/playerdashboardapp/.cxx/
+/playerdashboardapp/.externalNativeBuild/
+/playerdashboardapp/**/*.apk
+/playerdashboardapp/**/*.aab
+/playerdashboardapp/app/release/
+/playerdashboardapp/app/debug/
+
+# Generated reports
+coverage/
+test-results/
+playwright-report/

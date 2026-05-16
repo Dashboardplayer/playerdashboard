@@ -22,7 +22,8 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
-  DialogActions
+  DialogActions,
+  Stack
 } from '@mui/material';
 import { LockOutlined, Visibility, VisibilityOff } from '@mui/icons-material';
 
@@ -30,6 +31,7 @@ import { LockOutlined, Visibility, VisibilityOff } from '@mui/icons-material';
 const MAX_LOGIN_ATTEMPTS = 5;
 const LOCKOUT_DURATION = 5 * 60 * 1000; // 5 minutes
 const PROGRESSIVE_DELAYS = [0, 0, 0, 30000, 60000]; // Progressive delays in milliseconds
+const CAPTCHA_DEV_BYPASS = process.env.NODE_ENV === 'development' && process.env.REACT_APP_RECAPTCHA_DEV_BYPASS !== 'false';
 
 function LoginPage() {
   const [email, setEmail] = useState('');
@@ -210,7 +212,7 @@ function LoginPage() {
     }
 
     // Require CAPTCHA after 3 attempts
-    if (loginAttempts >= 3 && !recaptchaValue) {
+    if (loginAttempts >= 3 && !CAPTCHA_DEV_BYPASS && !recaptchaValue) {
       setError('Vul de CAPTCHA in');
       return;
     }
@@ -260,7 +262,7 @@ function LoginPage() {
       
       // Store authentication data properly
       try {
-        console.log('Login successful, setting up authentication...');
+        secureLog.info('Login successful, setting up authentication');
         
         // Store tokens and user data in localStorage
         browserAuth.setAuth(data.token, data.refreshToken, data.user);
@@ -363,6 +365,13 @@ function LoginPage() {
     }
   };
 
+  const handleClose2FADialog = () => {
+    setShow2FADialog(false);
+    setVerificationCode('');
+    setTempToken(null);
+    setError('');
+  };
+
   return (
     <Box
       sx={{
@@ -390,18 +399,17 @@ function LoginPage() {
             mb: 4
           }}
         >
-          <Typography
-            variant="h4"
-            component="h1"
+          <Box
+            component="img"
+            src={`${process.env.PUBLIC_URL}/displaybeheer-logo.png`}
+            alt="DisplayBeheer"
             sx={{
-              fontWeight: 700,
-              color: '#1a365d',
-              mb: 1,
-              textAlign: 'center'
+              width: { xs: 260, sm: 340 },
+              maxWidth: '100%',
+              height: 'auto',
+              mb: 1.5
             }}
-          >
-            DisplayBeheer.nl
-          </Typography>
+          />
           <Typography
             variant="subtitle1"
             sx={{
@@ -410,7 +418,7 @@ function LoginPage() {
               maxWidth: '400px'
             }}
           >
-            Beheer al je players vanaf één centrale locatie
+            Beheer al je players vanaf een centrale locatie
           </Typography>
         </Box>
 
@@ -551,7 +559,7 @@ function LoginPage() {
                 }}
               />
 
-              {loginAttempts >= 3 && (
+              {loginAttempts >= 3 && !CAPTCHA_DEV_BYPASS && (
                 <Box sx={{ 
                   mt: 2, 
                   mb: 2,
@@ -583,7 +591,7 @@ function LoginPage() {
                     boxShadow: 4
                   }
                 }}
-                disabled={loading || (lockoutUntil && lockoutUntil > Date.now()) || (loginAttempts >= 3 && !recaptchaValue)}
+                disabled={loading || (lockoutUntil && lockoutUntil > Date.now()) || (loginAttempts >= 3 && !CAPTCHA_DEV_BYPASS && !recaptchaValue)}
               >
                 {loading ? <CircularProgress size={20} /> : 'Inloggen'}
               </Button>
@@ -616,7 +624,7 @@ function LoginPage() {
         {/* 2FA Verification Dialog */}
         <Dialog 
           open={show2FADialog} 
-          onClose={() => setShow2FADialog(false)}
+          onClose={handleClose2FADialog}
           PaperProps={{
             sx: {
               borderRadius: 2,
@@ -635,38 +643,58 @@ function LoginPage() {
             Twee-factor authenticatie
           </DialogTitle>
           <DialogContent>
-            <Typography sx={{ 
-              mb: 2,
-              color: 'text.secondary',
-              textAlign: 'center',
-              fontSize: '0.9rem'
-            }}>
-              Voer de verificatiecode in van je authenticator app.
-            </Typography>
-            <TextField
-              autoFocus
-              margin="dense"
-              label="Verificatiecode"
-              type="text"
-              fullWidth
-              size="small"
-              value={verificationCode}
-              onChange={(e) => setVerificationCode(e.target.value)}
-              error={!!error}
-              helperText={error}
-              InputProps={{
-                sx: {
-                  borderRadius: 1
-                }
-              }}
-            />
+            <Stack spacing={2}>
+              <Typography sx={{ 
+                color: 'text.secondary',
+                textAlign: 'center',
+                fontSize: '0.9rem'
+              }}>
+                Voer de 6-cijferige code uit je authenticator app in.
+              </Typography>
+              <TextField
+                autoFocus
+                margin="dense"
+                label="Verificatiecode"
+                type="text"
+                fullWidth
+                size="small"
+                value={verificationCode}
+                onChange={(e) => {
+                  setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6));
+                  if (error) setError('');
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && verificationCode.length === 6 && !loading) {
+                    handle2FAVerification();
+                  }
+                }}
+                error={!!error}
+                helperText={error || 'Gebruik alleen cijfers'}
+                inputProps={{
+                  inputMode: 'numeric',
+                  pattern: '[0-9]*',
+                  maxLength: 6,
+                  autoComplete: 'one-time-code',
+                  sx: {
+                    textAlign: 'center',
+                    fontSize: '1.4rem',
+                    letterSpacing: 0
+                  }
+                }}
+                InputProps={{
+                  sx: {
+                    borderRadius: 1
+                  }
+                }}
+              />
+            </Stack>
           </DialogContent>
           <DialogActions sx={{ 
             justifyContent: 'center',
             p: 2
           }}>
             <Button 
-              onClick={() => setShow2FADialog(false)}
+              onClick={handleClose2FADialog}
               sx={{
                 textTransform: 'none',
                 color: 'text.secondary'
@@ -676,7 +704,7 @@ function LoginPage() {
             </Button>
             <Button 
               onClick={handle2FAVerification}
-              disabled={!verificationCode || loading}
+              disabled={verificationCode.length !== 6 || loading}
               variant="contained"
               sx={{
                 textTransform: 'none',
@@ -685,7 +713,7 @@ function LoginPage() {
                 py: 0.75
               }}
             >
-              {loading ? <CircularProgress size={20} /> : 'Verifiëren'}
+              {loading ? <CircularProgress size={20} /> : 'Verifieren'}
             </Button>
           </DialogActions>
         </Dialog>

@@ -1,12 +1,19 @@
 // API client using fetch API with localStorage fallback for offline/development usage
-const { browserAuth } = require('../utils/browserUtils');
-const { generateUUID } = require('../utils/uuidUtils');
-const { secureLog } = require('../utils/secureLogger');
+import { browserAuth } from '../utils/browserUtils.js';
+import { secureLog } from '../utils/secureLogger.js';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
+const API_URL = process.env.REACT_APP_API_URL || (() => {
+  if (typeof window !== 'undefined') {
+    const { hostname } = window.location;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return 'http://localhost:5001/api';
+    }
+  }
+
+  return '/api';
+})();
 
 // Constants for token management
-const TOKEN_EXPIRY_BUFFER = 60000; // 1 minute buffer
 const INACTIVITY_TIMEOUT = 10 * 60 * 1000; // 10 minutes in milliseconds
 const TOKEN_CHECK_INTERVAL = 30000; // Check token every 30 seconds
 const REGISTRATION_TOKEN_KEY = 'registration_token'; // Add the missing constant
@@ -1036,6 +1043,8 @@ const processUpdateMessage = (message) => {
         invalidateCache('companies');
         window.dispatchEvent(new CustomEvent('company_update', { detail: message }));
         break;
+      default:
+        break;
     }
   } catch (error) {
     secureLog.error('Error processing update message:', error);
@@ -1090,15 +1099,33 @@ const debounce = (key, fn, wait) => {
   return promise;
 };
 
+const normalizeCompanyRecord = (company) => {
+  if (!company) return company;
+
+  const normalizedName = String(company.company_name || company.name || '')
+    .toLowerCase()
+    .replace(/\s+/g, '');
+
+  if (company.company_id === 'superdeboer' && normalizedName === 'supermarkt2') {
+    return { ...company, company_id: 'supermarkt2' };
+  }
+
+  return company;
+};
+
+const normalizeCompanies = (companies) => Array.isArray(companies)
+  ? companies.map(normalizeCompanyRecord)
+  : companies;
+
 // Modified API functions with request deduplication
 const companyAPI = {
   getAll: async () => {
-    const cacheKey = 'companies';
-    
     // Check cache validity first
     if (cache.companies.data && Date.now() - cache.companies.timestamp < CACHE_DURATION) {
       console.log('Using cached companies data');
-      return { data: cache.companies.data, error: null };
+      const normalizedCachedCompanies = normalizeCompanies(cache.companies.data);
+      cache.companies.data = normalizedCachedCompanies;
+      return { data: normalizedCachedCompanies, error: null };
     }
 
     return debounce('getCompanies', async () => {
@@ -1120,7 +1147,7 @@ const companyAPI = {
           throw new Error(`Failed to fetch companies: ${response.statusText}`);
         }
 
-        const data = await response.json();
+        const data = normalizeCompanies(await response.json());
         
         // Cache the data
         cache.companies = {
@@ -1138,7 +1165,7 @@ const companyAPI = {
         // Try to get data from localStorage if available
         const cachedData = getCachedCompanies();
         if (cachedData && cachedData.length > 0) {
-          return { data: cachedData, error: null, fromCache: true };
+          return { data: normalizeCompanies(cachedData), error: null, fromCache: true };
         }
         
         return { data: null, error: error.message };
@@ -1183,7 +1210,7 @@ const companyAPI = {
 
 // Modified API functions with request deduplication
 const playerAPI = {
-  getAll: async (companyId = null) => {
+  getAll: async (companyId = null, options = {}) => {
     try {
       const user = browserAuth.getUser();
       
@@ -1192,13 +1219,16 @@ const playerAPI = {
         throw new Error('Authentication required');
       }
 
-      // Use the helper function to determine the effective company ID
-      const finalCompanyId = getEffectiveCompanyId(companyId);
-      
-      const cacheKey = `players_${finalCompanyId || 'all'}`;
+      const normalizedOptions = typeof companyId === 'object' && companyId !== null
+        ? companyId
+        : options;
+      const requestedCompanyId = typeof companyId === 'object' && companyId !== null
+        ? normalizedOptions.companyId || null
+        : companyId;
+      const finalCompanyId = getEffectiveCompanyId(requestedCompanyId);
       
       // Check cache validity first
-      if (cache.players?.data && Date.now() - cache.players.timestamp < CACHE_DURATION) {
+      if (false) {
         secureLog.info('Using cached players data');
         // Always filter by finalCompanyId, even for cached data
         const filteredData = finalCompanyId
@@ -1208,11 +1238,19 @@ const playerAPI = {
       }
       
       // Use unique key for this request
-      const requestKey = `getPlayers_${finalCompanyId || 'all'}_${Date.now()}`;
+      const requestKey = `getPlayers_${finalCompanyId || 'all'}_${normalizedOptions.page || 'all'}_${normalizedOptions.limit || 'all'}_${normalizedOptions.search || ''}_${normalizedOptions.status || 'all'}`;
       
       return debounce(requestKey, async () => {
         secureLog.info('Fetching player data', { companyId: finalCompanyId || 'all' });
-        const response = await fetch(`${API_URL}/players`, {
+        const params = new URLSearchParams();
+        if (finalCompanyId) params.set('company_id', finalCompanyId);
+        if (normalizedOptions.page) params.set('page', normalizedOptions.page);
+        if (normalizedOptions.limit) params.set('limit', normalizedOptions.limit);
+        if (normalizedOptions.search) params.set('search', normalizedOptions.search);
+        if (normalizedOptions.status) params.set('status', normalizedOptions.status);
+
+        const url = `${API_URL}/players${params.toString() ? `?${params.toString()}` : ''}`;
+        const response = await fetch(url, {
           headers: {
             'Authorization': `Bearer ${user.token}`
           }
@@ -1222,7 +1260,8 @@ const playerAPI = {
           throw new Error(`Failed to fetch players: ${response.statusText}`);
         }
 
-        const data = await response.json();
+        const responseData = await response.json();
+        const data = Array.isArray(responseData) ? responseData : responseData.data || [];
         
         // Cache the data
         cache.players = {
@@ -1241,10 +1280,43 @@ const playerAPI = {
           filteredByCompany: !!finalCompanyId
         });
         
-        return { data: filteredData, error: null };
+        return {
+          data: filteredData,
+          pagination: responseData.pagination || null,
+          error: null
+        };
       }, 300);
     } catch (error) {
       secureLog.error('Player data fetch error', { error: error.message });
+      return { data: null, error: error.message };
+    }
+  },
+
+  getStats: async (companyId = null) => {
+    try {
+      const user = browserAuth.getUser();
+      if (!user || !user.token) {
+        throw new Error('Authentication required');
+      }
+
+      const finalCompanyId = getEffectiveCompanyId(companyId);
+      const params = new URLSearchParams();
+      if (finalCompanyId) params.set('company_id', finalCompanyId);
+
+      const response = await fetch(`${API_URL}/players/stats${params.toString() ? `?${params.toString()}` : ''}`, {
+        headers: {
+          'Authorization': `Bearer ${user.token}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch player stats: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return { data, error: null };
+    } catch (error) {
+      secureLog.error('Player stats fetch error', { error: error.message });
       return { data: null, error: error.message };
     }
   },
@@ -1387,8 +1459,15 @@ const playerAPI = {
       // Only invalidate player cache instead of clearing all cache
       invalidateCache('players');
       secureLog.info('Player deleted successfully', { playerId });
-      
-      return { data: { success: true }, error: null };
+
+      let data = { success: true };
+      try {
+        data = await response.json();
+      } catch (e) {
+        // Backward compatible with older 204 responses.
+      }
+
+      return { data, error: null };
     } catch (error) {
       secureLog.error('Player deletion error', { error: error.message });
       return { error: error.message };
@@ -1399,20 +1478,107 @@ const playerAPI = {
     if (!playerId || !command || !command.type) {
       return { error: 'Player ID and command type are required' };
     }
-    // Use the internal fetchWithAuth helper
-    const result = await fetchWithAuth(`/players/${playerId}/commands`, {
-      method: 'POST',
-      body: JSON.stringify(command) // Send the whole command object as defined in firebaseService
-    });
-    // Invalidate player cache if needed, though sending a command might not change player list directly
-    // invalidateCache('players'); 
-    return result; 
+
+    try {
+      // Clean the player ID to ensure it's properly formatted
+      const cleanPlayerId = String(playerId).trim();
+
+      // Basic validation - just ensure we have something reasonable
+      // Note: We're now more permissive on the client side since the server handles multiple ID formats
+      if (cleanPlayerId.length < 5) {
+        console.error('Player ID seems too short:', {
+          id: cleanPlayerId,
+          length: cleanPlayerId.length
+        });
+        return { error: 'Player ID is too short' };
+      }
+
+      console.log(`API Client: Sending command to player ${cleanPlayerId}`, {
+        commandType: command.type,
+        playerIdLength: cleanPlayerId.length
+      });
+
+      // Use the internal fetchWithAuth helper
+      const result = await fetchWithAuth(`/players/${cleanPlayerId}/commands`, {
+        method: 'POST',
+        body: JSON.stringify(command)
+      });
+
+      if (result.error) {
+        console.error('API command error:', result.error);
+      } else {
+        console.log('API command success:', result);
+      }
+
+      return result;
+    } catch (error) {
+      console.error('Unexpected error in sendCommand:', error);
+      return { error: error.message };
+    }
+  },
+  // Get audit logs for a player
+  getAuditLogs: async (playerId) => {
+    try {
+      const user = browserAuth.getUser();
+
+      if (!user || !user.token) {
+        secureLog.error('Authentication required for audit logs');
+        throw new Error('Authentication required');
+      }
+
+      const response = await fetch(`${API_URL}/players/${playerId}/audit-logs`, {
+        headers: {
+          'Authorization': `Bearer ${user.token}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch audit logs: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return { data, error: null };
+    } catch (error) {
+      secureLog.error('Audit logs fetch error', { error: error.message });
+      return { data: null, error: error.message };
+    }
+  },
+  // Get screenshot for a player
+  getScreenshot: async (playerId) => {
+    try {
+      const user = browserAuth.getUser();
+
+      if (!user || !user.token) {
+        secureLog.error('Authentication required for screenshot');
+        throw new Error('Authentication required');
+      }
+
+      const response = await fetch(`${API_URL}/players/${playerId}/screenshot`, {
+        headers: {
+          'Authorization': `Bearer ${user.token}`
+        }
+      });
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          return { data: null, error: 'No screenshot available' };
+        }
+        throw new Error(`Failed to fetch screenshot: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return { data, error: null };
+    } catch (error) {
+      secureLog.error('Screenshot fetch error', { error: error.message });
+      return { data: null, error: error.message };
+    }
   }
 };
 
 // Modified API functions with request deduplication
 const userAPI = {
   getAll: async (companyId = null) => {
+    // ... (rest of the code remains the same)
     try {
       const user = browserAuth.getUser();
       
@@ -1423,8 +1589,6 @@ const userAPI = {
 
       // Use the helper function to determine the effective company ID
       const finalCompanyId = getEffectiveCompanyId(companyId);
-      
-      const cacheKey = `users_${finalCompanyId || 'all'}`;
       
       // Check cache validity first
       if (cache.users.data && Date.now() - cache.users.timestamp < CACHE_DURATION) {
@@ -2574,12 +2738,448 @@ browserAuth.setAuth = (token, refreshToken, userData) => {
   }
 };
 
-module.exports = {
+const scheduleAPI = {
+  getByPlayer: async (playerId) => {
+    try {
+      const user = browserAuth.getUser();
+      
+      if (!user || !user.token) {
+        secureLog.error('No authentication token or user found');
+        throw new Error('Authentication required');
+      }
+
+      const response = await fetch(`${API_URL}/schedules/player/${playerId}`, {
+        headers: {
+          'Authorization': `Bearer ${user.token}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch schedules: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return { data, error: null };
+    } catch (error) {
+      secureLog.error('Schedule fetch error', { error: error.message });
+      return { data: null, error: error.message };
+    }
+  },
+
+  create: async (scheduleData) => {
+    try {
+      const user = browserAuth.getUser();
+      
+      if (!user || !user.token) {
+        secureLog.error('No authentication token or user found');
+        throw new Error('Authentication required');
+      }
+
+      const response = await fetch(`${API_URL}/schedules`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${user.token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(scheduleData)
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to create schedule: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return { data, error: null };
+    } catch (error) {
+      secureLog.error('Schedule creation error', { error: error.message });
+      return { data: null, error: error.message };
+    }
+  },
+
+  update: async (scheduleId, scheduleData) => {
+    try {
+      const user = browserAuth.getUser();
+      
+      if (!user || !user.token) {
+        secureLog.error('No authentication token or user found');
+        throw new Error('Authentication required');
+      }
+
+      const response = await fetch(`${API_URL}/schedules/${scheduleId}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${user.token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(scheduleData)
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to update schedule: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return { data, error: null };
+    } catch (error) {
+      secureLog.error('Schedule update error', { error: error.message });
+      return { data: null, error: error.message };
+    }
+  },
+
+  delete: async (scheduleId) => {
+    try {
+      const user = browserAuth.getUser();
+      
+      if (!user || !user.token) {
+        secureLog.error('No authentication token or user found');
+        throw new Error('Authentication required');
+      }
+
+      const response = await fetch(`${API_URL}/schedules/${scheduleId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${user.token}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to delete schedule: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return { data, error: null };
+    } catch (error) {
+      secureLog.error('Schedule deletion error', { error: error.message });
+      return { data: null, error: error.message };
+    }
+  }
+};
+
+const groupAPI = {
+  getAll: async (companyId = null) => {
+    try {
+      const user = browserAuth.getUser();
+      
+      if (!user || !user.token) {
+        secureLog.error('No authentication token or user found');
+        throw new Error('Authentication required');
+      }
+
+      const url = new URL(`${API_URL}/groups`);
+      if (companyId && user.role === 'superadmin') {
+        url.searchParams.append('company_id', companyId);
+      }
+
+      const response = await fetch(url.toString(), {
+        headers: {
+          'Authorization': `Bearer ${user.token}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch groups: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return { data, error: null };
+    } catch (error) {
+      secureLog.error('Group fetch error', { error: error.message });
+      return { data: null, error: error.message };
+    }
+  },
+
+  create: async (groupData) => {
+    try {
+      const user = browserAuth.getUser();
+      
+      if (!user || !user.token) {
+        secureLog.error('No authentication token or user found');
+        throw new Error('Authentication required');
+      }
+
+      const response = await fetch(`${API_URL}/groups`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${user.token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(groupData)
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to create group: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return { data, error: null };
+    } catch (error) {
+      secureLog.error('Group creation error', { error: error.message });
+      return { data: null, error: error.message };
+    }
+  },
+
+  update: async (groupId, groupData) => {
+    try {
+      const user = browserAuth.getUser();
+      
+      if (!user || !user.token) {
+        secureLog.error('No authentication token or user found');
+        throw new Error('Authentication required');
+      }
+
+      const response = await fetch(`${API_URL}/groups/${groupId}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${user.token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(groupData)
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to update group: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return { data, error: null };
+    } catch (error) {
+      secureLog.error('Group update error', { error: error.message });
+      return { data: null, error: error.message };
+    }
+  },
+
+  delete: async (groupId) => {
+    try {
+      const user = browserAuth.getUser();
+      
+      if (!user || !user.token) {
+        secureLog.error('No authentication token or user found');
+        throw new Error('Authentication required');
+      }
+
+      const response = await fetch(`${API_URL}/groups/${groupId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${user.token}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to delete group: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return { data, error: null };
+    } catch (error) {
+      secureLog.error('Group deletion error', { error: error.message });
+      return { data: null, error: error.message };
+    }
+  },
+
+  addPlayer: async (groupId, playerId) => {
+    try {
+      const user = browserAuth.getUser();
+      
+      if (!user || !user.token) {
+        secureLog.error('No authentication token or user found');
+        throw new Error('Authentication required');
+      }
+
+      const response = await fetch(`${API_URL}/groups/${groupId}/players/${playerId}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${user.token}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to add player to group: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return { data, error: null };
+    } catch (error) {
+      secureLog.error('Add player to group error', { error: error.message });
+      return { data: null, error: error.message };
+    }
+  },
+
+  removePlayer: async (groupId, playerId) => {
+    try {
+      const user = browserAuth.getUser();
+      
+      if (!user || !user.token) {
+        secureLog.error('No authentication token or user found');
+        throw new Error('Authentication required');
+      }
+
+      const response = await fetch(`${API_URL}/groups/${groupId}/players/${playerId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${user.token}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to remove player from group: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return { data, error: null };
+    } catch (error) {
+      secureLog.error('Remove player from group error', { error: error.message });
+      return { data: null, error: error.message };
+    }
+  },
+
+  getPlayers: async (groupId) => {
+    try {
+      const user = browserAuth.getUser();
+      
+      if (!user || !user.token) {
+        secureLog.error('No authentication token or user found');
+        throw new Error('Authentication required');
+      }
+
+      const response = await fetch(`${API_URL}/groups/${groupId}/players`, {
+        headers: {
+          'Authorization': `Bearer ${user.token}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch group players: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return { data, error: null };
+    } catch (error) {
+      secureLog.error('Group players fetch error', { error: error.message });
+      return { data: null, error: error.message };
+    }
+  }
+};
+
+const healthAPI = {
+  getByPlayer: async (playerId) => {
+    try {
+      const user = browserAuth.getUser();
+      
+      if (!user || !user.token) {
+        secureLog.error('No authentication token or user found');
+        throw new Error('Authentication required');
+      }
+
+      const response = await fetch(`${API_URL}/health-data/player/${playerId}`, {
+        headers: {
+          'Authorization': `Bearer ${user.token}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch health data: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return { data, error: null };
+    } catch (error) {
+      secureLog.error('Health data fetch error', { error: error.message });
+      return { data: null, error: error.message };
+    }
+  },
+
+  getHistory: async (playerId, limit = 100) => {
+    try {
+      const user = browserAuth.getUser();
+      
+      if (!user || !user.token) {
+        secureLog.error('No authentication token or user found');
+        throw new Error('Authentication required');
+      }
+
+      const response = await fetch(`${API_URL}/health-data/player/${playerId}/history?limit=${limit}`, {
+        headers: {
+          'Authorization': `Bearer ${user.token}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch health history: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return { data, error: null };
+    } catch (error) {
+      secureLog.error('Health history fetch error', { error: error.message });
+      return { data: null, error: error.message };
+    }
+  },
+
+  getSummary: async () => {
+    try {
+      const user = browserAuth.getUser();
+      
+      if (!user || !user.token) {
+        secureLog.error('No authentication token or user found');
+        throw new Error('Authentication required');
+      }
+
+      const response = await fetch(`${API_URL}/health-data/summary`, {
+        headers: {
+          'Authorization': `Bearer ${user.token}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch health summary: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return { data, error: null };
+    } catch (error) {
+      secureLog.error('Health summary fetch error', { error: error.message });
+      return { data: null, error: error.message };
+    }
+  },
+
+  getOffline: async () => {
+    try {
+      const user = browserAuth.getUser();
+      
+      if (!user || !user.token) {
+        secureLog.error('No authentication token or user found');
+        throw new Error('Authentication required');
+      }
+
+      const response = await fetch(`${API_URL}/health-data/offline`, {
+        headers: {
+          'Authorization': `Bearer ${user.token}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch offline players: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return { data, error: null };
+    } catch (error) {
+      secureLog.error('Offline players fetch error', { error: error.message });
+      return { data: null, error: error.message };
+    }
+  }
+};
+
+export {
   companyAPI,
   playerAPI,
   userAPI,
+  scheduleAPI,
+  groupAPI,
+  healthAPI,
   authAPI,
   invalidateCaches,
-  getEffectiveCompanyId,
-  browserAuth: null   // Import separately from utils/browserUtils.js
+  getEffectiveCompanyId
 };
+
+// Note: browserAuth should be imported separately from utils/browserUtils.js

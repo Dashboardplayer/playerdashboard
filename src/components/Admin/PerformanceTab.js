@@ -35,8 +35,16 @@ import {
   LineElement,
   Title,
   Tooltip,
-  Legend
+  Legend,
+  Filler
 } from 'chart.js';
+
+const formatUptime = (seconds = 0) => {
+  const safeSeconds = Number(seconds) || 0;
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  return `${hours}u ${minutes}m`;
+};
 
 // Register ChartJS components
 ChartJS.register(
@@ -46,14 +54,15 @@ ChartJS.register(
   LineElement,
   Title,
   Tooltip,
-  Legend
+  Legend,
+  Filler
 );
 
 // Alert thresholds
 const ALERT_THRESHOLDS = {
   memory: {
-    heapUsed: 80, // 80% of total heap
-    warning: 70   // 70% for warning
+    heapUsed: 95, // 95% of total heap (Node.js normally uses 80-95%)
+    warning: 90   // 90% for warning
   },
   websocket: {
     disconnectionRate: 20, // 20% disconnection rate
@@ -79,53 +88,41 @@ const PerformanceTab = () => {
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const [historicalData, setHistoricalData] = useState({
     websocket: [],
-    rateLimits: [],
     memory: [],
-    apiResponse: []
+    apiResponse: [],
+    activeUsers: [],
+    activePlayers: []
   });
 
   // Check for alerts
   const checkAlerts = (data) => {
     const newAlerts = [];
     
-    // Memory alerts
+    // Memory alerts - show absolute values instead of percentage
     const heapUsage = (data.system.memory.heapUsed / data.system.memory.heapTotal) * 100;
     if (heapUsage > ALERT_THRESHOLDS.memory.heapUsed) {
       newAlerts.push({
         type: 'error',
-        message: `High memory usage: ${heapUsage.toFixed(1)}%`
+        message: `High memory usage: ${data.system.memory.heapUsed}MB / ${data.system.memory.heapTotal}MB heap (RSS: ${data.system.memory.rss}MB)`
       });
     } else if (heapUsage > ALERT_THRESHOLDS.memory.warning) {
       newAlerts.push({
         type: 'warning',
-        message: `Elevated memory usage: ${heapUsage.toFixed(1)}%`
+        message: `Elevated memory usage: ${data.system.memory.heapUsed}MB / ${data.system.memory.heapTotal}MB heap (RSS: ${data.system.memory.rss}MB)`
       });
     }
 
     // WebSocket alerts
-    const disconnectionRate = ((data.websocket.totalConnections - data.websocket.authenticatedConnections) / data.websocket.totalConnections) * 100;
+    const totalConnections = data.websocket.totalConnections || 0;
+    const disconnectionRate = totalConnections > 0
+      ? ((totalConnections - data.websocket.authenticatedConnections) / totalConnections) * 100
+      : 0;
     if (disconnectionRate > ALERT_THRESHOLDS.websocket.disconnectionRate) {
       newAlerts.push({
         type: 'error',
         message: `High WebSocket disconnection rate: ${disconnectionRate.toFixed(1)}%`
       });
     }
-
-    // Rate limit alerts
-    Object.entries(data.rateLimits).forEach(([type, limitData]) => {
-      const usage = (limitData.current / limitData.max) * 100;
-      if (usage > ALERT_THRESHOLDS.rateLimit.critical) {
-        newAlerts.push({
-          type: 'error',
-          message: `Critical rate limit usage for ${type}: ${usage.toFixed(1)}%`
-        });
-      } else if (usage > ALERT_THRESHOLDS.rateLimit.warning) {
-        newAlerts.push({
-          type: 'warning',
-          message: `High rate limit usage for ${type}: ${usage.toFixed(1)}%`
-        });
-      }
-    });
 
     // API response time alerts
     if (data.apiResponse?.avgTime > ALERT_THRESHOLDS.apiResponse.critical) {
@@ -140,7 +137,7 @@ const PerformanceTab = () => {
     // Show snackbar for new critical alerts
     const criticalAlerts = newAlerts.filter(alert => alert.type === 'error');
     if (criticalAlerts.length > 0) {
-      setSnackbarMessage(`${criticalAlerts.length} critical alert(s)!`);
+      setSnackbarMessage(`${criticalAlerts.length} kritieke melding(en)`);
       setSnackbarOpen(true);
     }
   };
@@ -177,23 +174,36 @@ const PerformanceTab = () => {
         setPerformanceData(data);
         checkAlerts(data);
         
-        // Update historical data
+        // Update historical data (prevent duplicates by checking last entry)
         setHistoricalData(prev => {
           const now = new Date().toLocaleTimeString();
+          
+          // Helper to add entry only if different from last
+          const addIfDifferent = (arr, newEntry) => {
+            const last = arr[arr.length - 1];
+            if (!last || JSON.stringify(last) !== JSON.stringify(newEntry)) {
+              return [...arr, newEntry].slice(-20);
+            }
+            return arr;
+          };
+          
           return {
-            websocket: [...prev.websocket, { time: now, ...data.websocket }].slice(-20),
-            rateLimits: [...prev.rateLimits, { time: now, ...data.rateLimits }].slice(-20),
-            memory: [...prev.memory, { 
+            websocket: addIfDifferent(prev.websocket, { time: now, ...data.websocket }),
+            memory: addIfDifferent(prev.memory, { 
               time: now, 
-              heapUsed: parseInt(data.system.memory.heapUsed),
-              heapTotal: parseInt(data.system.memory.heapTotal),
-              rss: parseInt(data.system.memory.rss)
-            }].slice(-20),
-            apiResponse: [...prev.apiResponse, {
+              heapUsed: data.system.memory.heapUsed,
+              heapTotal: data.system.memory.heapTotal,
+              rss: data.system.memory.rss,
+              external: data.system.memory.external
+            }),
+            apiResponse: addIfDifferent(prev.apiResponse, {
               time: now,
               avgTime: data.apiResponse?.avgTime || 0,
-              errorRate: data.apiResponse?.errorRate || 0
-            }].slice(-20)
+              errorRate: data.apiResponse?.errorRate || 0,
+              totalRequests: data.apiResponse?.totalRequests || 0
+            }),
+            activeUsers: addIfDifferent(prev.activeUsers, { time: now, count: data.activeUsers || 0 }),
+            activePlayers: addIfDifferent(prev.activePlayers, { time: now, count: data.activePlayers || 0 })
           };
         });
 
@@ -230,12 +240,35 @@ const PerformanceTab = () => {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 
-    setSnackbarMessage('Performance data exported successfully');
+    setSnackbarMessage('Performance data geexporteerd');
     setSnackbarOpen(true);
   };
 
   // Chart options
   const chartOptions = {
+    responsive: true,
+    animation: false,
+    scales: {
+      y: {
+        beginAtZero: true,
+        position: 'left'
+      },
+      y1: {
+        beginAtZero: true,
+        position: 'right',
+        grid: {
+          drawOnChartArea: false
+        }
+      }
+    },
+    plugins: {
+      legend: {
+        position: 'top'
+      }
+    }
+  };
+
+  const singleAxisChartOptions = {
     responsive: true,
     animation: false,
     scales: {
@@ -255,13 +288,13 @@ const PerformanceTab = () => {
     labels: historicalData.websocket.map(d => d.time),
     datasets: [
       {
-        label: 'Total Connections',
+        label: 'Alle verbindingen',
         data: historicalData.websocket.map(d => d.totalConnections),
         borderColor: 'rgb(75, 192, 192)',
         tension: 0.1
       },
       {
-        label: 'Authenticated Connections',
+        label: 'Geauthenticeerd',
         data: historicalData.websocket.map(d => d.authenticatedConnections),
         borderColor: 'rgb(54, 162, 235)',
         tension: 0.1
@@ -274,13 +307,13 @@ const PerformanceTab = () => {
     labels: historicalData.memory.map(d => d.time),
     datasets: [
       {
-        label: 'Heap Used (MB)',
+        label: 'Heap gebruikt (MB)',
         data: historicalData.memory.map(d => d.heapUsed),
         borderColor: 'rgb(255, 99, 132)',
         tension: 0.1
       },
       {
-        label: 'Heap Total (MB)',
+        label: 'Heap totaal (MB)',
         data: historicalData.memory.map(d => d.heapTotal),
         borderColor: 'rgb(75, 192, 192)',
         tension: 0.1
@@ -289,6 +322,12 @@ const PerformanceTab = () => {
         label: 'RSS (MB)',
         data: historicalData.memory.map(d => d.rss),
         borderColor: 'rgb(153, 102, 255)',
+        tension: 0.1
+      },
+      {
+        label: 'External (MB)',
+        data: historicalData.memory.map(d => d.external),
+        borderColor: 'rgb(255, 159, 64)',
         tension: 0.1
       }
     ]
@@ -299,16 +338,41 @@ const PerformanceTab = () => {
     labels: historicalData.apiResponse.map(d => d.time),
     datasets: [
       {
-        label: 'Average Response Time (ms)',
+        label: 'Gemiddelde responstijd (ms)',
         data: historicalData.apiResponse.map(d => d.avgTime),
         borderColor: 'rgb(255, 159, 64)',
-        tension: 0.1
+        tension: 0.1,
+        yAxisID: 'y'
       },
       {
-        label: 'Error Rate (%)',
+        label: 'Foutpercentage (%)',
         data: historicalData.apiResponse.map(d => d.errorRate),
         borderColor: 'rgb(255, 99, 132)',
-        tension: 0.1
+        tension: 0.1,
+        yAxisID: 'y1'
+      }
+    ]
+  };
+
+  // Active Users/Players chart data
+  const activeChartData = {
+    labels: historicalData.activeUsers.map(d => d.time),
+    datasets: [
+      {
+        label: 'Recente logins',
+        data: historicalData.activeUsers.map(d => d.count),
+        borderColor: 'rgb(75, 192, 192)',
+        backgroundColor: 'rgba(75, 192, 192, 0.1)',
+        tension: 0.1,
+        fill: true
+      },
+      {
+        label: 'Actieve players',
+        data: historicalData.activePlayers.map(d => d.count),
+        borderColor: 'rgb(54, 162, 235)',
+        backgroundColor: 'rgba(54, 162, 235, 0.1)',
+        tension: 0.1,
+        fill: true
       }
     ]
   };
@@ -329,7 +393,7 @@ const PerformanceTab = () => {
     <Box p={3}>
       <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
         <Typography variant="h4">
-          System Performance
+          Systeem performance
         </Typography>
         <Box>
           <IconButton 
@@ -352,7 +416,7 @@ const PerformanceTab = () => {
             onClick={exportData}
             sx={{ ml: 2 }}
           >
-            Export Data
+            Exporteren
           </Button>
         </Box>
       </Box>
@@ -363,10 +427,10 @@ const PerformanceTab = () => {
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom>
-                WebSocket Connections
+                WebSocket verbindingen
               </Typography>
               <Box height={300}>
-                <Line options={chartOptions} data={wsChartData} />
+                <Line options={singleAxisChartOptions} data={wsChartData} />
               </Box>
             </CardContent>
           </Card>
@@ -377,47 +441,40 @@ const PerformanceTab = () => {
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom>
-                Memory Usage
+                Geheugengebruik
               </Typography>
               <Box height={300}>
-                <Line options={chartOptions} data={memoryChartData} />
+                <Line options={singleAxisChartOptions} data={memoryChartData} />
               </Box>
             </CardContent>
           </Card>
         </Grid>
 
-        {/* Rate Limits */}
+        {/* Rate Limits Configuration */}
         <Grid item xs={12}>
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom>
-                Rate Limits
+                Rate limit configuratie
+              </Typography>
+              <Typography variant="body2" color="textSecondary" gutterBottom>
+                Dit toont de ingestelde limieten. Realtime verbruik per limiet wordt niet bijgehouden door de huidige middleware.
               </Typography>
               <TableContainer component={Paper}>
                 <Table>
                   <TableHead>
                     <TableRow>
                       <TableCell>Type</TableCell>
-                      <TableCell>Window</TableCell>
-                      <TableCell>Limit</TableCell>
-                      <TableCell>Current Usage</TableCell>
-                      <TableCell>Status</TableCell>
+                      <TableCell>Venster</TableCell>
+                      <TableCell>Max requests</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {performanceData && Object.entries(performanceData.rateLimits).map(([type, data]) => (
-                      <TableRow key={type}>
-                        <TableCell>{type}</TableCell>
-                        <TableCell>{data.windowMs / 1000}s</TableCell>
+                    {performanceData && Array.isArray(performanceData.rateLimits) && performanceData.rateLimits.map((data) => (
+                      <TableRow key={data.type}>
+                        <TableCell>{data.type}</TableCell>
+                        <TableCell>{data.windowSeconds || (data.windowMs / 1000)}s</TableCell>
                         <TableCell>{data.max}</TableCell>
-                        <TableCell>{data.current || 0}</TableCell>
-                        <TableCell>
-                          <Chip
-                            label={data.current >= data.max * 0.8 ? 'High' : 'Normal'}
-                            color={data.current >= data.max * 0.8 ? 'warning' : 'success'}
-                            size="small"
-                          />
-                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -428,21 +485,64 @@ const PerformanceTab = () => {
         </Grid>
 
         {/* System Info */}
-        <Grid item xs={12}>
+        <Grid item xs={12} md={6}>
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom>
-                System Information
+                Systeeminformatie
               </Typography>
               <Grid container spacing={2}>
                 <Grid item xs={12} md={6}>
-                  <Typography variant="subtitle1">
-                    Uptime: {Math.floor(performanceData?.system?.uptime / 3600)} hours {Math.floor((performanceData?.system?.uptime % 3600) / 60)} minutes
+                  <Typography variant="subtitle2">
+                    Uptime: {formatUptime(performanceData?.system?.uptime)}
                   </Typography>
                 </Grid>
                 <Grid item xs={12} md={6}>
-                  <Typography variant="subtitle1">
-                    Last Updated: {new Date().toLocaleString()}
+                  <Typography variant="subtitle2">
+                    Node: {performanceData?.system?.nodeVersion}
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="subtitle2">
+                    Platform: {performanceData?.system?.platform} ({performanceData?.system?.arch})
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="subtitle2">
+                    Laatst bijgewerkt: {new Date(performanceData?.timestamp || Date.now()).toLocaleString('nl-NL')}
+                  </Typography>
+                </Grid>
+              </Grid>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* Database Info */}
+        <Grid item xs={12} md={6}>
+          <Card>
+            <CardContent>
+              <Typography variant="h6" gutterBottom>
+                Database status
+              </Typography>
+              <Grid container spacing={2}>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="subtitle2">
+                    Status: {performanceData?.database?.readyState === 1 ? 'Verbonden' : 'Niet verbonden'}
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="subtitle2">
+                    Database: {performanceData?.database?.name}
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="subtitle2">
+                    Recente logins: {performanceData?.activeUsers || 0}
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="subtitle2">
+                    Actieve players: {performanceData?.activePlayers || 0}
                   </Typography>
                 </Grid>
               </Grid>
@@ -455,7 +555,7 @@ const PerformanceTab = () => {
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom>
-                API Performance
+                API performance
               </Typography>
               <Box height={300}>
                 <Line options={chartOptions} data={apiChartData} />
@@ -463,14 +563,36 @@ const PerformanceTab = () => {
             </CardContent>
           </Card>
         </Grid>
+
+        {/* Active Users/Players */}
+        <Grid item xs={12} md={6}>
+          <Card>
+            <CardContent>
+              <Typography variant="h6" gutterBottom>
+                Recente logins en actieve players
+              </Typography>
+              {historicalData.activeUsers.length > 0 ? (
+                <Box height={300}>
+                  <Line options={singleAxisChartOptions} data={activeChartData} />
+                </Box>
+              ) : (
+                <Box height={300} display="flex" alignItems="center" justifyContent="center">
+                  <Typography variant="body2" color="textSecondary">
+                    Nog geen data. Wachten op eerste update...
+                  </Typography>
+                </Box>
+              )}
+            </CardContent>
+          </Card>
+        </Grid>
       </Grid>
 
       {/* Alerts Dialog */}
       <Dialog open={alertsOpen} onClose={() => setAlertsOpen(false)}>
-        <DialogTitle>System Alerts</DialogTitle>
+        <DialogTitle>Systeemmeldingen</DialogTitle>
         <DialogContent>
           {alerts.length === 0 ? (
-            <Typography>No active alerts</Typography>
+            <Typography>Geen actieve meldingen</Typography>
           ) : (
             alerts.map((alert, index) => (
               <Alert key={index} severity={alert.type} sx={{ mt: 1 }}>
@@ -480,7 +602,7 @@ const PerformanceTab = () => {
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setAlertsOpen(false)}>Close</Button>
+          <Button onClick={() => setAlertsOpen(false)}>Sluiten</Button>
         </DialogActions>
       </Dialog>
 

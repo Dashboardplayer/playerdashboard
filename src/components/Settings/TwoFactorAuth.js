@@ -25,8 +25,8 @@ import {
   QrCode2 as QrCodeIcon,
   Shield as ShieldIcon
 } from '@mui/icons-material';
-import { useUser } from '../../contexts/UserContext';
 import { authAPI } from '../../hooks/apiClient';
+import { secureLog } from '../../utils/secureLogger';
 
 function TwoFactorAuth() {
   const [loading, setLoading] = useState(false);
@@ -70,7 +70,7 @@ function TwoFactorAuth() {
     try {
       const response = await authAPI.generate2FASecret();
       // Log success without sensitive data
-      console.log('2FA setup response received', {
+      secureLog.debug('2FA setup response received', {
         success: !response.error,
         hasData: !!response.data 
       });

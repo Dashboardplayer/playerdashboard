@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Button, ButtonGroup, Snackbar, Alert, Dialog, DialogTitle, DialogContent, DialogActions, TextField, FormControl, InputLabel, Select, MenuItem, CircularProgress, Box } from '@mui/material';
-import { firebaseService } from '../../services/firebaseService';
+import { playerAPI } from '../../hooks/apiClient';
 
 const PlayerControls = ({ playerId, onCommandSent, onError }) => {
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
@@ -12,39 +12,12 @@ const PlayerControls = ({ playerId, onCommandSent, onError }) => {
     const [success, setSuccess] = useState('');
     const [commandStatus, setCommandStatus] = useState(null);
 
-    useEffect(() => {
-        // Subscribe to command acknowledgments
-        const handleAcknowledgment = (acknowledgment) => {
-            if (acknowledgment.commandId === commandStatus?.id) {
-                setCommandStatus(prev => ({
-                    ...prev,
-                    status: acknowledgment.status,
-                    error: acknowledgment.error,
-                    timestamp: acknowledgment.timestamp
-                }));
-
-                if (acknowledgment.status === 'success') {
-                    setSuccess('Command executed successfully');
-                    setUpdateDialog(false);
-                } else if (acknowledgment.status === 'error') {
-                    setError(`Command failed: ${acknowledgment.error}`);
-                }
-            }
-        };
-
-        firebaseService.onCommandAcknowledgment(handleAcknowledgment);
-
-        return () => {
-            // Cleanup subscription if needed
-        };
-    }, [commandStatus?.id]);
-
     const handleCommand = async (command) => {
         try {
             switch (command) {
                 case 'reboot':
-                    await firebaseService.sendCommand(playerId, {
-                        type: 'reboot',
+                    await playerAPI.sendCommand(playerId, {
+                        type: 'restart',
                         payload: {}
                     });
                     setSnackbar({
@@ -54,7 +27,7 @@ const PlayerControls = ({ playerId, onCommandSent, onError }) => {
                     });
                     break;
                 case 'screenshot':
-                    await firebaseService.sendCommand(playerId, {
+                    await playerAPI.sendCommand(playerId, {
                         type: 'screenshot',
                         payload: {}
                     });
@@ -93,7 +66,7 @@ const PlayerControls = ({ playerId, onCommandSent, onError }) => {
 
         try {
             const commandType = updateType === 'app' ? 'update' : 'systemUpdate';
-            const commandId = await firebaseService.sendCommand(playerId, {
+            const commandId = await playerAPI.sendCommand(playerId, {
                 type: commandType,
                 payload: { url: updateUrl }
             });

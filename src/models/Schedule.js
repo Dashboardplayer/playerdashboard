@@ -1,4 +1,4 @@
-import mongoose from 'mongoose';
+const mongoose = require('mongoose');
 
 // Schedule Schema - Replaces schedule table in Supabase
 const scheduleSchema = new mongoose.Schema({
@@ -9,16 +9,40 @@ const scheduleSchema = new mongoose.Schema({
   },
   scheduled_url: {
     type: String,
-    required: true,
     trim: true
   },
+  // Screen on/off scheduling
+  screen_on: {
+    type: Boolean,
+    default: true
+  },
+  // Time-based scheduling
   start_time: {
-    type: Date,
-    required: true
+    type: String, // Format: "HH:mm" for daily recurring
   },
   end_time: {
-    type: Date,
-    required: true
+    type: String, // Format: "HH:mm" for daily recurring
+  },
+  // Days of week (0=Sunday, 6=Saturday)
+  days_of_week: {
+    type: [Number],
+    default: [0, 1, 2, 3, 4, 5, 6] // All days by default
+  },
+  // Schedule type: 'content' or 'screen'
+  type: {
+    type: String,
+    enum: ['content', 'screen'],
+    default: 'content'
+  },
+  // Whether this schedule is active
+  active: {
+    type: Boolean,
+    default: true
+  },
+  // Optional name for the schedule
+  name: {
+    type: String,
+    trim: true
   },
   createdAt: {
     type: Date,
@@ -36,6 +60,9 @@ scheduleSchema.pre('save', function(next) {
   next();
 });
 
+scheduleSchema.index({ player_id: 1, active: 1, createdAt: -1 });
+scheduleSchema.index({ player_id: 1, active: 1, days_of_week: 1 });
+
 // Create and export Schedule model
 const Schedule = mongoose.model('Schedule', scheduleSchema);
-export default Schedule;
+module.exports = Schedule;

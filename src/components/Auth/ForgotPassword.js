@@ -1,6 +1,6 @@
 // ForgotPassword.js
 import React, { useState } from 'react';
-import { Container, Box, Typography, TextField, Button, Alert, Paper, Link, useTheme, CircularProgress } from '@mui/material';
+import { Container, Box, Typography, TextField, Button, Alert, Paper, Link, CircularProgress } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { LockOutlined } from '@mui/icons-material';
 
@@ -178,7 +178,7 @@ function ForgotPassword() {
                 size="small"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                error={error}
+                error={!!error}
                 disabled={loading}
                 InputProps={{
                   sx: {

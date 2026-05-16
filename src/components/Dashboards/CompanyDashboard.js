@@ -12,14 +12,16 @@ import {
   IconButton,
   Tooltip,
   Stack,
-  Alert
+  Alert,
+  Snackbar
 } from '@mui/material';
 import {
   Person,
   VpnKey,
   Devices,
   Refresh,
-  Settings as SettingsIcon
+  Settings as SettingsIcon,
+  SignalWifiOff
 } from '@mui/icons-material';
 import { Link } from 'react-router-dom';
 import { companyAPI, playerAPI, userAPI } from '../../hooks/apiClient';
@@ -29,12 +31,15 @@ function CompanyDashboard() {
   const [companyName, setCompanyName] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState(null);
   const [companyStats, setCompanyStats] = useState({
     totalPlayers: 0,
     activePlayers: 0,
+    offlinePlayers: 0,
     totalUsers: 0
   });
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [loadRetries, setLoadRetries] = useState(0);
   const maxRetries = 3;
 
@@ -49,7 +54,7 @@ function CompanyDashboard() {
     return null;
   }, [user]);
 
-  const fetchCompanyData = useCallback(async () => {
+  const fetchCompanyData = useCallback(async ({ silent = false } = {}) => {
     const companyId = getCompanyId();
     if (!companyId) {
       if (loadRetries < maxRetries) {
@@ -59,14 +64,18 @@ function CompanyDashboard() {
         }, 500);
         return;
       } else {
-        setError('Could not determine company ID. Please try logging in again.');
+        setError('Bedrijf kon niet bepaald worden. Log opnieuw in en probeer het daarna nog een keer.');
         setLoading(false);
         return;
       }
     }
 
     try {
-      setLoading(true);
+      if (!silent) {
+        setLoading(true);
+      } else {
+        setIsRefreshing(true);
+      }
       setError(''); // Clear any existing errors
 
       // First try to get company name from localStorage cache
@@ -96,7 +105,7 @@ function CompanyDashboard() {
       }
 
       // Parallel fetch for better performance
-      const playersPromise = playerAPI.getAll(companyId);
+      const playersPromise = playerAPI.getStats(companyId);
       const usersPromise = userAPI.getAll(companyId);
       
       const [playersResult, usersResult] = await Promise.all([
@@ -108,13 +117,13 @@ function CompanyDashboard() {
       if (playersResult.error) {
         console.error('Error fetching players:', playersResult.error);
       } else {
-        const players = playersResult.data || [];
-        const activePlayers = players.filter(player => player.is_online) || [];
+        const playerStats = playersResult.data || {};
         
         setCompanyStats(prev => ({
           ...prev,
-          totalPlayers: players.length,
-          activePlayers: activePlayers.length
+          totalPlayers: playerStats.totalPlayers || 0,
+          activePlayers: playerStats.activePlayers || 0,
+          offlinePlayers: playerStats.offlinePlayers || 0
         }));
       }
       
@@ -130,11 +139,14 @@ function CompanyDashboard() {
         }));
       }
 
+      setLastUpdated(new Date());
+
     } catch (err) {
       console.error('Error in fetchCompanyData:', err);
-      setError(err.message || 'Failed to load company data');
+      setError(err.message || 'Bedrijfsgegevens laden mislukt.');
     } finally {
       setLoading(false);
+      if (silent) setIsRefreshing(false);
     }
   }, [getCompanyId, loadRetries, maxRetries]);
 
@@ -144,7 +156,7 @@ function CompanyDashboard() {
     
     // Set up event listeners for real-time updates
     const handleEntityUpdate = () => {
-      fetchCompanyData();
+      fetchCompanyData({ silent: true });
     };
     
     window.addEventListener('company_update', handleEntityUpdate);
@@ -159,9 +171,8 @@ function CompanyDashboard() {
   }, [fetchCompanyData]);
 
   const handleRefresh = async () => {
-    setIsRefreshing(true);
-    await fetchCompanyData();
-    setTimeout(() => setIsRefreshing(false), 500);
+    await fetchCompanyData({ silent: true });
+    setSuccess('Dashboard vernieuwd.');
   };
 
   // Show loading state when user context is loading
@@ -171,7 +182,7 @@ function CompanyDashboard() {
         <Stack spacing={2} alignItems="center">
           <CircularProgress />
           <Typography variant="body2" color="text.secondary">
-            Loading dashboard...
+            Dashboard laden...
           </Typography>
         </Stack>
       </Box>
@@ -185,11 +196,11 @@ function CompanyDashboard() {
           severity="error" 
           action={
             <Button color="inherit" size="small" onClick={handleRefresh}>
-              Retry
+              Opnieuw proberen
             </Button>
           }
         >
-          {userError || error || 'An error occurred while loading the dashboard'}
+          {userError || error || 'Er is een fout opgetreden bij het laden van het dashboard.'}
         </Alert>
       </Box>
     );
@@ -202,7 +213,7 @@ function CompanyDashboard() {
     return (
       <Box sx={{ p: 3 }}>
         <Alert severity="warning">
-          Please log in to access the dashboard
+          Log in om het dashboard te openen.
         </Alert>
       </Box>
     );
@@ -222,6 +233,17 @@ function CompanyDashboard() {
     }
   };
 
+  const getRoleLabel = (role) => {
+    switch (role) {
+      case 'superadmin':
+        return 'Superadmin';
+      case 'bedrijfsadmin':
+        return 'Bedrijfsadmin';
+      default:
+        return 'Gebruiker';
+    }
+  };
+
   const roleColors = getRoleColor(currentUser.role || localStorage.getItem('user_role') || 'user');
 
   // Filter function to only show company's own data
@@ -231,39 +253,46 @@ function CompanyDashboard() {
   };
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ px: { xs: 2, md: 3 }, py: { xs: 2, md: 3 }, bgcolor: '#f6f8fb', minHeight: '100vh' }}>
       {/* Welcome Header */}
       <Paper 
-        elevation={2} 
+        elevation={0} 
         sx={{ 
-          p: 3,
-          mb: 4,
-          background: 'linear-gradient(135deg, #fff 0%, #f8f9fa 100%)',
+          p: { xs: 2, md: 3 },
+          mb: 3,
+          bgcolor: 'background.paper',
           borderRadius: 2,
-          borderLeft: '4px solid #1976d2'
+          border: '1px solid',
+          borderColor: 'divider'
         }}
       >
         <Box sx={{ 
           display: 'flex', 
           justifyContent: 'space-between', 
-          alignItems: 'flex-start',
-          mb: 3
+          alignItems: { xs: 'flex-start', md: 'center' },
+          flexDirection: { xs: 'column', md: 'row' },
+          gap: 2,
+          mb: 2
         }}>
           <Box>
-            <Typography variant="h5" gutterBottom sx={{ color: 'primary.main' }}>
-              Welcome to {companyName || 'Your Dashboard'}
+            <Typography variant="h5" sx={{ fontWeight: 700, color: 'text.primary' }}>
+              {companyName || 'Bedrijfsdashboard'}
             </Typography>
-            <Stack direction="row" spacing={3} alignItems="center">
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 1.5 }}>
+              Overzicht van je players en gebruikers.
+              {lastUpdated ? ` Laatst bijgewerkt: ${lastUpdated.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}` : ''}
+            </Typography>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={{ xs: 1, sm: 3 }} alignItems={{ xs: 'flex-start', sm: 'center' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <Person sx={{ color: 'text.secondary', fontSize: 20 }} />
                 <Typography variant="body2" color="text.secondary">
-                  {currentUser.email || 'User'}
+                  {currentUser.email || 'Gebruiker'}
                 </Typography>
               </Box>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <VpnKey sx={{ color: 'text.secondary', fontSize: 20 }} />
                 <Chip
-                  label={currentUser.role || localStorage.getItem('user_role') || 'User'}
+                  label={getRoleLabel(currentUser.role || localStorage.getItem('user_role') || 'user')}
                   size="small"
                   sx={{
                     bgcolor: roleColors.bg,
@@ -275,8 +304,28 @@ function CompanyDashboard() {
             </Stack>
           </Box>
           
-          <Stack direction="row" spacing={1}>
-            <Tooltip title="Settings">
+          <Stack direction="row" spacing={1} sx={{ alignSelf: { xs: 'stretch', md: 'center' }, justifyContent: 'flex-end' }}>
+            <Button
+              variant="contained"
+              component={Link}
+              to="/create-player"
+              startIcon={<Devices />}
+              sx={{ width: { xs: '100%', sm: 'auto' } }}
+            >
+              Player
+            </Button>
+            {currentUser.role === 'bedrijfsadmin' && (
+              <Button
+                variant="outlined"
+                component={Link}
+                to="/create-user"
+                startIcon={<Person />}
+                sx={{ width: { xs: '100%', sm: 'auto' } }}
+              >
+                Gebruiker
+              </Button>
+            )}
+            <Tooltip title="Instellingen">
               <IconButton
                 color="primary"
                 component={Link}
@@ -286,9 +335,10 @@ function CompanyDashboard() {
                 <SettingsIcon />
               </IconButton>
             </Tooltip>
-            <Tooltip title="Refresh Dashboard">
+            <Tooltip title="Dashboard vernieuwen">
               <IconButton
                 onClick={handleRefresh}
+                disabled={isRefreshing}
                 sx={{
                   animation: isRefreshing ? 'spin 1s linear infinite' : 'none',
                   '@keyframes spin': {
@@ -306,45 +356,17 @@ function CompanyDashboard() {
             </Tooltip>
           </Stack>
         </Box>
-
-        <Stack direction="row" spacing={2} alignItems="center">
-          <Button
-            variant="contained"
-            component={Link}
-            to="/create-player"
-            startIcon={<Devices />}
-            sx={{ 
-              bgcolor: 'primary.main',
-              '&:hover': { bgcolor: 'primary.dark' }
-            }}
-          >
-            New Player
-          </Button>
-          {currentUser.role === 'bedrijfsadmin' && (
-            <Button
-              variant="contained"
-              component={Link}
-              to="/create-user"
-              startIcon={<Person />}
-              sx={{ 
-                bgcolor: 'warning.main',
-                '&:hover': { bgcolor: 'warning.dark' }
-              }}
-            >
-              New User
-            </Button>
-          )}
-        </Stack>
       </Paper>
 
       {/* Statistics Cards */}
-      <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid item xs={12} sm={6} md={4}>
+      <Paper elevation={0} sx={{ mb: 3, p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: 2, bgcolor: 'background.paper' }}>
+      <Grid container spacing={1}>
+        <Grid item xs={12} sm={6} md={3}>
           <Paper
-            elevation={2}
+            elevation={0}
             sx={{
-              p: 3,
-              bgcolor: '#e3f2fd',
+              p: 1,
+              bgcolor: 'transparent',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
@@ -352,22 +374,22 @@ function CompanyDashboard() {
             }}
           >
             <Box>
-              <Typography variant="h4" component="div" color="primary">
+              <Typography variant="h6" component="div" sx={{ fontWeight: 700 }}>
                 {companyStats.totalPlayers}
               </Typography>
-              <Typography variant="subtitle1" color="text.secondary">
-                Total Players
+              <Typography variant="caption" color="text.secondary">
+                Players
               </Typography>
             </Box>
-            <Devices sx={{ fontSize: 40, color: 'primary.main', opacity: 0.7 }} />
+            <Devices sx={{ fontSize: 22, color: 'primary.main', opacity: 0.9 }} />
           </Paper>
         </Grid>
-        <Grid item xs={12} sm={6} md={4}>
+        <Grid item xs={12} sm={6} md={3}>
           <Paper
-            elevation={2}
+            elevation={0}
             sx={{
-              p: 3,
-              bgcolor: '#e8f5e9',
+              p: 1,
+              bgcolor: 'transparent',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
@@ -375,22 +397,22 @@ function CompanyDashboard() {
             }}
           >
             <Box>
-              <Typography variant="h4" component="div" color="success.main">
+              <Typography variant="h6" component="div" sx={{ fontWeight: 700 }}>
                 {companyStats.activePlayers}
               </Typography>
-              <Typography variant="subtitle1" color="text.secondary">
-                Active Players
+              <Typography variant="caption" color="text.secondary">
+                Online
               </Typography>
             </Box>
-            <Devices sx={{ fontSize: 40, color: 'success.main', opacity: 0.7 }} />
+            <Devices sx={{ fontSize: 22, color: 'success.main', opacity: 0.9 }} />
           </Paper>
         </Grid>
-        <Grid item xs={12} sm={6} md={4}>
+        <Grid item xs={12} sm={6} md={3}>
           <Paper
-            elevation={2}
+            elevation={0}
             sx={{
-              p: 3,
-              bgcolor: '#fff3e0',
+              p: 1,
+              bgcolor: 'transparent',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
@@ -398,23 +420,58 @@ function CompanyDashboard() {
             }}
           >
             <Box>
-              <Typography variant="h4" component="div" color="warning.main">
-                {companyStats.totalUsers}
+              <Typography variant="h6" component="div" sx={{ fontWeight: 700 }}>
+                {companyStats.offlinePlayers}
               </Typography>
-              <Typography variant="subtitle1" color="text.secondary">
-                Total Users
+              <Typography variant="caption" color="text.secondary">
+                Offline
               </Typography>
             </Box>
-            <Person sx={{ fontSize: 40, color: 'warning.main', opacity: 0.7 }} />
+            <SignalWifiOff sx={{ fontSize: 22, color: 'error.main', opacity: 0.9 }} />
+          </Paper>
+        </Grid>
+        <Grid item xs={12} sm={6} md={3}>
+          <Paper
+            elevation={0}
+            sx={{
+              p: 1,
+              bgcolor: 'transparent',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              borderRadius: 2
+            }}
+          >
+            <Box>
+              <Typography variant="h6" component="div" sx={{ fontWeight: 700 }}>
+                {companyStats.totalUsers}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Gebruikers
+              </Typography>
+            </Box>
+            <Person sx={{ fontSize: 22, color: 'warning.main', opacity: 0.9 }} />
           </Paper>
         </Grid>
       </Grid>
+      </Paper>
 
       {error && (
         <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError('')}>
           {error}
         </Alert>
       )}
+
+      {/* Success Message */}
+      <Snackbar
+        open={Boolean(success)}
+        autoHideDuration={3000}
+        onClose={() => setSuccess('')}
+      >
+        <Alert severity="success" variant="filled">
+          {success}
+        </Alert>
+      </Snackbar>
 
       {/* Main Dashboard Content */}
       <SuperAdminDashboard 

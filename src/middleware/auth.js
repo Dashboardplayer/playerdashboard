@@ -2,15 +2,28 @@ const jwt = require('jsonwebtoken');
 const { isTokenBlacklisted } = require('../services/tokenBlacklistService');
 const User = require('../models/User');
 
+const getCookieValue = (req, name) => {
+  const cookieHeader = req.headers.cookie;
+  if (!cookieHeader) return null;
+
+  const cookies = cookieHeader.split(';').map((cookie) => cookie.trim());
+  const match = cookies.find((cookie) => cookie.startsWith(`${name}=`));
+  if (!match) return null;
+
+  return decodeURIComponent(match.substring(name.length + 1));
+};
+
 const auth = async (req, res, next) => {
   try {
     const authHeader = req.header('Authorization');
     
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if ((!authHeader || !authHeader.startsWith('Bearer ')) && !getCookieValue(req, 'access_token')) {
       return res.status(401).json({ error: 'No token provided or invalid format' });
     }
 
-    const token = authHeader.replace('Bearer ', '');
+    const token = authHeader?.startsWith('Bearer ')
+      ? authHeader.replace('Bearer ', '')
+      : getCookieValue(req, 'access_token');
     
     try {
       // Verify the token

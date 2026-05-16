@@ -2,7 +2,7 @@ services:
   - type: web
     name: player-dashboard
     env: node
-    buildCommand: npm install --production=false && npm run build
+    buildCommand: npm ci && npm run build && npm prune --omit=dev
     startCommand: npm run render-start
     envVars:
       - key: NODE_ENV
@@ -23,21 +23,21 @@ services:
         sync: false
       - key: RECAPTCHA_SECRET_KEY
         sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: CLOUDINARY_UPLOADS_FOLDER
+        value: playerdashboard/uploads
+      - key: CLOUDINARY_SCREENSHOTS_FOLDER
+        value: playerdashboard/screenshots
       - key: ALLOWED_ORIGINS
         value: https://player-dashboard.onrender.com
-      - key: SECURITY_HEADERS_ENABLED
-        value: true
-      - key: REDIS_TLS_ENABLED
-        value: true
-      - key: FIREBASE_PROJECT_ID
-        sync: false
-      - key: FIREBASE_PRIVATE_KEY
-        sync: false
-      - key: FIREBASE_CLIENT_EMAIL
-        sync: false
+      - key: BASE_URL
+        value: https://player-dashboard.onrender.com
       - key: CORS_MAX_AGE
         value: "86400"
-      - key: X_FRAME_OPTIONS
-        value: "DENY"
-    healthCheckPath: /
-    autoDeploy: true 
+    healthCheckPath: /api/ping
+    autoDeploy: true

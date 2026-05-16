@@ -5,8 +5,7 @@ const refreshTokenSchema = new mongoose.Schema({
   token: {
     type: String,
     required: true,
-    unique: true,
-    default: () => crypto.randomBytes(40).toString('hex')
+    unique: true
   },
   user: {
     type: mongoose.Schema.Types.ObjectId,
@@ -34,9 +33,16 @@ const refreshTokenSchema = new mongoose.Schema({
 });
 
 // Add indexes
-refreshTokenSchema.index({ token: 1 });
+refreshTokenSchema.index({ token: 1 }, { unique: true });
 refreshTokenSchema.index({ user: 1 });
 refreshTokenSchema.index({ expiresAt: 1 });
+
+refreshTokenSchema.statics.hashToken = function(token) {
+  return crypto
+    .createHash('sha256')
+    .update(String(token))
+    .digest('hex');
+};
 
 // Instance methods
 refreshTokenSchema.methods.isExpired = function() {
@@ -49,16 +55,29 @@ refreshTokenSchema.methods.isActive = function() {
 
 // Static methods
 refreshTokenSchema.statics.generateRefreshToken = async function(userId) {
-  const token = new this({
+  const plainToken = crypto.randomBytes(40).toString('hex');
+  const refreshToken = new this({
     user: userId,
-    token: crypto.randomBytes(40).toString('hex')
+    token: this.hashToken(plainToken)
   });
-  await token.save();
-  return token;
+  await refreshToken.save();
+  refreshToken.plainToken = plainToken;
+  return refreshToken;
+};
+
+refreshTokenSchema.statics.findByToken = async function(token) {
+  const tokenHash = this.hashToken(token);
+  return this.findOne({
+    $or: [
+      { token: tokenHash },
+      // Temporary backwards compatibility for refresh tokens issued before hashing.
+      { token }
+    ]
+  });
 };
 
 refreshTokenSchema.statics.revokeToken = async function(token) {
-  const refreshToken = await this.findOne({ token });
+  const refreshToken = await this.findByToken(token);
   if (refreshToken && refreshToken.isActive()) {
     refreshToken.revokedAt = new Date();
     await refreshToken.save();

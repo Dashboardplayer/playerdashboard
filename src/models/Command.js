@@ -18,7 +18,7 @@ const commandSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['pending', 'processing', 'completed', 'failed'],
+    enum: ['pending', 'delivered', 'processing', 'completed', 'failed'],
     default: 'pending'
   },
   createdAt: {
@@ -27,8 +27,22 @@ const commandSchema = new mongoose.Schema({
   },
   completed_at: {
     type: Date
+  },
+  deliveredAt: {
+    type: Date
+  },
+  completedAt: {
+    type: Date
+  },
+  result: {
+    type: mongoose.Schema.Types.Mixed,
+    default: {}
   }
 });
+
+commandSchema.index({ player_id: 1, status: 1, createdAt: 1 });
+commandSchema.index({ player_id: 1, createdAt: -1 });
+commandSchema.index({ status: 1, createdAt: 1 });
 
 // Create and export Command model
 const Command = mongoose.model('Command', commandSchema);

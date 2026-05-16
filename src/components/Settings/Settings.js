@@ -26,7 +26,7 @@ import PasswordRequirements from '../Auth/PasswordRequirements';
 import TwoFactorAuth from './TwoFactorAuth';
 
 function Settings() {
-  const { profile, updateProfile } = useUser();
+  const { profile } = useUser();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -41,7 +41,7 @@ function Settings() {
   const handleNewPasswordChange = (e) => {
     const password = e.target.value;
     setNewPassword(password);
-    const { isValid, errors } = validatePassword(password);
+    const { errors } = validatePassword(password);
     setPasswordErrors(errors);
   };
 

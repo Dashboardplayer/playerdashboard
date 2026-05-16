@@ -145,7 +145,7 @@ const secureLog = {
   }
 };
 
-module.exports = {
+export {
   secureLog,
   maskSensitiveData
-}; 
+};

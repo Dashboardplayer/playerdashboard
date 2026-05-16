@@ -39,7 +39,9 @@ import {
   SupervisorAccount,
   Person,
   Add,
-  Timeline
+  Timeline,
+  Folder,
+  MonitorHeart
 } from '@mui/icons-material';
 
 function NavBar() {
@@ -85,14 +87,38 @@ function NavBar() {
   };
 
   const getNavigationItems = () => {
-    const items = [];
+    const items = [
+      {
+        text: 'Dashboard',
+        icon: <Dashboard />,
+        path: profile?.role === 'superadmin' ? '/superadmin-dashboard' : '/company-dashboard'
+      }
+    ];
 
     // User Management for admins
     if (['superadmin', 'bedrijfsadmin'].includes(profile?.role)) {
       items.push({
-        text: 'User Management',
+        text: 'Gebruikers',
         icon: <Group />,
         path: '/users'
+      });
+    }
+
+    // Group Management for admins
+    if (['superadmin', 'bedrijfsadmin'].includes(profile?.role)) {
+      items.push({
+        text: 'Groepen',
+        icon: <Folder />,
+        path: '/groups'
+      });
+    }
+
+    // Health Monitoring for admins
+    if (['superadmin', 'bedrijfsadmin'].includes(profile?.role)) {
+      items.push({
+        text: 'Health monitor',
+        icon: <MonitorHeart />,
+        path: '/health'
       });
     }
 
@@ -107,7 +133,7 @@ function NavBar() {
 
     // Settings for all users
     items.push({
-      text: 'Settings',
+      text: 'Instellingen',
       icon: <Settings />,
       path: '/settings'
     });
@@ -119,12 +145,14 @@ function NavBar() {
     const actions = [
       {
         text: 'New Player',
+        label: 'Nieuwe player',
         icon: <Devices />,
         path: '/create-player',
         roles: ['superadmin', 'bedrijfsadmin']
       },
       {
         text: 'New User',
+        label: 'Nieuwe gebruiker',
         icon: <PersonAdd />,
         path: '/create-user',
         roles: ['superadmin', 'bedrijfsadmin']
@@ -134,6 +162,7 @@ function NavBar() {
     if (profile?.role === 'superadmin') {
       actions.push({
         text: 'New Company',
+        label: 'Nieuw bedrijf',
         icon: <Business />,
         path: '/create-company',
         roles: ['superadmin']
@@ -147,19 +176,19 @@ function NavBar() {
     switch (profile?.role) {
       case 'superadmin':
         return {
-          label: 'Super Admin',
+          label: 'Superadmin',
           color: 'error',
           icon: <AdminPanelSettings sx={{ fontSize: 16 }} />
         };
       case 'bedrijfsadmin':
         return {
-          label: 'Company Admin',
+          label: 'Bedrijfsadmin',
           color: 'warning',
           icon: <SupervisorAccount sx={{ fontSize: 16 }} />
         };
       default:
         return {
-          label: 'User',
+          label: 'Gebruiker',
           color: 'success',
           icon: <Person sx={{ fontSize: 16 }} />
         };
@@ -185,12 +214,10 @@ function NavBar() {
             </IconButton>
           )}
 
-          <Typography 
-            variant="h6" 
-            component={Link} 
+          <Box
+            component={Link}
             to={profile?.role === 'superadmin' ? '/superadmin-dashboard' : '/company-dashboard'}
             sx={{ 
-              color: 'primary.main', 
               textDecoration: 'none',
               flexGrow: 1,
               display: 'flex',
@@ -198,9 +225,18 @@ function NavBar() {
               gap: 1
             }}
           >
-            <Dashboard />
-            Dashboard
-          </Typography>
+            <Box
+              component="img"
+              src={`${process.env.PUBLIC_URL}/displaybeheer-logo.png`}
+              alt="DisplayBeheer"
+              sx={{
+                width: { xs: 160, sm: 210 },
+                maxHeight: 44,
+                objectFit: 'contain',
+                objectPosition: 'left center'
+              }}
+            />
+          </Box>
 
           {!isMobile && (
             <Box sx={{ mx: 2, display: 'flex', gap: 2 }}>
@@ -225,7 +261,7 @@ function NavBar() {
           {profile && (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               {quickActions.length > 0 && (
-                <Tooltip title="Quick Actions">
+              <Tooltip title="Snel toevoegen">
                   <IconButton
                     color="primary"
                     onClick={handleQuickActionClick}
@@ -270,7 +306,7 @@ function NavBar() {
           {profile && (
             <Box sx={{ px: 2, pb: 2 }}>
               <Typography variant="subtitle2" color="text.secondary">
-                Logged in as
+                Ingelogd als
               </Typography>
               <Typography variant="body2" noWrap>
                 {profile.email}
@@ -308,7 +344,7 @@ function NavBar() {
               <List>
                 <ListItem>
                   <Typography variant="overline" color="text.secondary">
-                    Quick Actions
+                    Snel toevoegen
                   </Typography>
                 </ListItem>
                 {quickActions.map((action) => (
@@ -319,7 +355,7 @@ function NavBar() {
                     onClick={() => setDrawerOpen(false)}
                   >
                     <ListItemIcon>{action.icon}</ListItemIcon>
-                    <ListItemText primary={action.text} />
+                    <ListItemText primary={action.label || action.text} />
                   </ListItemButton>
                 ))}
               </List>
@@ -357,7 +393,7 @@ function NavBar() {
             }}
           >
             {action.icon}
-            <Typography>{action.text}</Typography>
+            <Typography>{action.label || action.text}</Typography>
           </MenuItem>
         ))}
       </Menu>
@@ -385,7 +421,7 @@ function NavBar() {
           <ListItemIcon>
             <Settings fontSize="small" />
           </ListItemIcon>
-          <Typography>Settings</Typography>
+          <Typography>Instellingen</Typography>
         </MenuItem>
         <Divider />
         <MenuItem
@@ -398,7 +434,7 @@ function NavBar() {
           <ListItemIcon>
             <Logout fontSize="small" color="error" />
           </ListItemIcon>
-          <Typography>Logout</Typography>
+          <Typography>Uitloggen</Typography>
         </MenuItem>
       </Menu>
     </>

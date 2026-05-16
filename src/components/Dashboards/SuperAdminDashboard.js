@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { userAPI, companyAPI, playerAPI } from '../../hooks/apiClient';
 import {
   Card,
@@ -22,12 +22,13 @@ import {
   Dialog,
   DialogActions,
   DialogContent,
-  DialogContentText,
   DialogTitle,
   CardHeader,
   Avatar,
   Stack,
   Divider,
+  CircularProgress,
+  Tooltip,
   LinearProgress
 } from '@mui/material';
 import {
@@ -35,34 +36,40 @@ import {
   Devices,
   Person,
   Delete,
-  Search
+  Search,
+  Business,
+  SignalWifiOff,
+  Add
 } from '@mui/icons-material';
 import { Link } from 'react-router-dom';
 import PlayerManagement from '../Players/PlayerManagement';
-import { firebaseService } from '../../services/firebaseService';
 import { secureLog } from '../../utils/secureLogger';
 import { browserAuth } from '../../utils/browserUtils';
 
 function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard, hideHeader }) {
+  const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+  const VISIBILITY_REFRESH_STALE_MS = 2 * 60 * 1000;
   const [currentTab, setCurrentTab] = useState(0);
   const [users, setUsers] = useState([]);
-  const [newUrl, setNewUrl] = useState('');
-  const [companies, setCompanies] = useState({});
   const [userCompanies, setUserCompanies] = useState({});
   const [companyOptions, setCompanyOptions] = useState([]);
   const [selectedCompanyFilter, setSelectedCompanyFilter] = useState('');
   const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState(null);
-  const [deleteType, setDeleteType] = useState('');
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [lastUpdated, setLastUpdated] = useState(null);
   const [data, setData] = useState({
     players: [],
     companies: [],
     users: []
   });
+  const lastFetchRef = useRef(0);
+  const refreshTimerRef = useRef(null);
 
   // Add scroll position management
   const handleTabChange = (event, newValue) => {
@@ -78,9 +85,13 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
     });
   };
 
-  const fetchDashboardData = useCallback(async () => {
+  const fetchDashboardData = useCallback(async ({ silent = false } = {}) => {
     try {
-      setLoading(true);
+      if (!silent) {
+        setLoading(true);
+      } else {
+        setIsRefreshing(true);
+      }
       setError('');
 
       // Check if user is authenticated first
@@ -90,36 +101,48 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
       }
 
       // Fetch all data in parallel using API clients
-      const [playersResult, companiesResult, usersResult] = await Promise.all([
+      const [playersResult, playerStatsResult, companiesResult, usersResult] = await Promise.all([
         playerAPI.getAll(),
+        playerAPI.getStats(),
         companyAPI.getAll(),
         userAPI.getAll()
       ]);
 
       // Check for errors
       if (playersResult.error) throw new Error(`Failed to fetch players: ${playersResult.error}`);
+      if (playerStatsResult.error) throw new Error(`Failed to fetch player stats: ${playerStatsResult.error}`);
       if (companiesResult.error) throw new Error(`Failed to fetch companies: ${companiesResult.error}`);
       if (usersResult.error) throw new Error(`Failed to fetch users: ${usersResult.error}`);
+
+      const filteredUsers = filterData ? filterData(usersResult.data || []) : (usersResult.data || []);
 
       // Update state with all data
       setData({
         players: playersResult.data || [],
+        playerStats: playerStatsResult.data || null,
         companies: companiesResult.data || [],
-        users: usersResult.data || []
+        users: filteredUsers
       });
 
       // Update individual states
-      setUsers(usersResult.data || []);
-      setCompanies(companiesResult.data || []);
+      setUsers(filteredUsers);
 
       // Update company options
       if (companiesResult.data) {
         const formattedCompanies = companiesResult.data.map(company => ({
-          company_id: company.id || company.company_id,
-          company_name: company.name || company.company_name
+          company_id: company.company_id || company.id || company._id,
+          company_name: company.company_name || company.name
         }));
         setCompanyOptions(formattedCompanies);
       }
+
+      const userCompObj = {};
+      filteredUsers.forEach((user) => {
+        userCompObj[user.id || user._id] = user.company_id || '';
+      });
+      setUserCompanies(userCompObj);
+      lastFetchRef.current = Date.now();
+      setLastUpdated(new Date());
 
     } catch (err) {
       secureLog.error('Dashboard data fetch error', { error: err.message });
@@ -134,8 +157,19 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
       setError(err.message || 'Er is een onverwachte fout opgetreden.');
     } finally {
       setLoading(false);
+      if (silent) setIsRefreshing(false);
     }
-  }, []);
+  }, [filterData]);
+
+  const scheduleDashboardRefresh = useCallback(() => {
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current);
+    }
+
+    refreshTimerRef.current = setTimeout(() => {
+      fetchDashboardData({ silent: true });
+    }, 1200);
+  }, [fetchDashboardData]);
 
   // Initial data fetch
   useEffect(() => {
@@ -147,7 +181,10 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
     const handleWebSocketMessage = (event) => {
       try {
         const message = JSON.parse(event.data);
-        console.log('WebSocket Message Received:', message); // Add detailed logging
+        secureLog.debug('WebSocket message received', {
+          type: message?.type,
+          hasData: !!message?.data
+        });
 
         // Get message type safely and convert to lowercase for comparison
         const messageType = message?.type?.toLowerCase();
@@ -155,52 +192,53 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
         // Update local state based on WebSocket messages
         switch (messageType) { // Use the lowercased, safe type
           case 'player_created':
-            console.log('Handling player_created');
             setData(prevData => ({
               ...prevData,
               players: [...prevData.players, message.data]
             }));
             break;
           case 'player_updated':
-            // Ensure data and _id exist before proceeding
-            if (message.data?._id) {
-              console.log('Handling player_updated for ID:', message.data._id);
+            // Ensure data and _id or id exist before proceeding
+            const playerId = message.data?._id || message.data?.id;
+            if (playerId) {
               setData(prevData => ({
                 ...prevData,
                 players: prevData.players.map(player => 
-                  player._id === message.data._id ? { ...player, ...message.data } : player
+                  (player._id === playerId || player.id === playerId) ? { ...player, ...message.data } : player
                 )
               }));
             } else {
-              console.warn('Received player_updated message with missing data or _id:', message);
+              secureLog.warn('Received player_updated message with missing data or id', {
+                type: message.type,
+                hasData: !!message.data
+              });
             }
             break;
           case 'player_deleted':
-            // Ensure data and id exist before proceeding
-            if (message.data?.id) { 
-              console.log('Handling player_deleted for ID:', message.data.id);
+            if (message.data && message.data.id) {
               setData(prevData => ({
                 ...prevData,
                 players: prevData.players.filter(player => player._id !== message.data.id)
               }));
             } else {
-               console.warn('Received player_deleted message with missing data or id:', message);
+              secureLog.warn('Received player_deleted message with missing data or id', {
+                type: message.type,
+                hasData: !!message.data
+              });
             }
             break;
           case 'company_created':
           case 'company_updated':
           case 'company_deleted':
-            console.log('Handling company event:', message.type);
-            fetchDashboardData(); // Still fetch all for company changes
+            scheduleDashboardRefresh();
             break;
           case 'user_created':
           case 'user_updated':
           case 'user_deleted':
-            console.log('Handling user event:', message.type);
-            fetchDashboardData(); // Still fetch all for user changes
+            scheduleDashboardRefresh();
             break;
           default:
-             console.warn('Received unknown WebSocket message type:', message.type);
+            secureLog.debug('Received unknown WebSocket message type', { type: message.type });
             break;
         }
       } catch (error) {
@@ -217,171 +255,53 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
       if (window.ws) {
         window.ws.removeEventListener('message', handleWebSocketMessage);
       }
+      if (refreshTimerRef.current) {
+        clearTimeout(refreshTimerRef.current);
+      }
     };
-  }, [fetchDashboardData]);
+  }, [scheduleDashboardRefresh]);
 
-  const handleRefresh = () => {
-    fetchDashboardData();
+  const handleRefresh = async () => {
+    await fetchDashboardData({ silent: true });
+    setSuccess('Dashboard vernieuwd.');
   };
-
-  const fetchCompanyOptions = async () => {
-    try {
-      // Use companyAPI instead of mongoClient directly
-      const { data, error } = await companyAPI.getAll();
-      
-      if (error) {
-        secureLog.error('Error fetching companies:', error);
-        setError('Fout bij het ophalen van bedrijven.');
-        return;
-      }
-      
-      if (data) {
-        secureLog.info('Companies fetched successfully', { count: data.length });
-        // Ensure we're setting the correct data structure
-        const formattedData = data.map(company => ({
-          company_id: company.id || company.company_id,
-          company_name: company.name || company.company_name
-        }));
-        setCompanyOptions(formattedData);
-      }
-    } catch (err) {
-      secureLog.error('Unexpected error:', err);
-      setError('Er is een onverwachte fout opgetreden.');
-    }
-  };
-
-  // Function to fetch users
-  const fetchUsers = useCallback(async () => {
-    try {
-      // Check if user is authenticated first
-      const user = browserAuth.getUser();
-      if (!user || !user.token) {
-        throw new Error('Authentication required. Please log in again.');
-      }
-      
-      // Clear any cached users to ensure fresh data
-      localStorage.removeItem('cached_users');
-      
-      setLoading(true);
-      secureLog.info('Fetching users...');
-      
-      // Use userService instead of mongoClient directly
-      const { data, error } = await userAPI.getAll();
-      
-      if (error) {
-        // Check if this is an authentication error
-        if (error.includes('Authentication required') || error.includes('No authentication')) {
-          // Redirect to login if this is an authentication error
-          window.location.href = '/login';
-          return;
-        }
-        
-        secureLog.error('Error fetching users:', error);
-        setError('Fout bij het ophalen van gebruikers.');
-        return;
-      }
-      
-      if (data) {
-        // Apply company filtering if provided
-        let filteredData = filterData ? filterData(data) : data;
-        
-        // Apply company filter if selected
-        if (selectedCompanyFilter) {
-          filteredData = filteredData.filter(user => user.company_id === selectedCompanyFilter);
-        }
-        
-        secureLog.info('Users data fetched successfully', {
-          count: filteredData.length,
-          roles: filteredData.map(u => u.role)
-        });
-        
-        // Always update the state with new data
-        setUsers(filteredData);
-        
-        // Create a map of user ID to company ID
-        const userCompObj = {};
-        filteredData.forEach((user) => {
-          userCompObj[user.id || user._id] = user.company_id || '';
-        });
-        setUserCompanies(userCompObj);
-      } else {
-        secureLog.warn('No users data received');
-        setUsers([]);
-      }
-    } catch (err) {
-      secureLog.error('Unexpected error fetching users:', err);
-      
-      // Check if this is an authentication error
-      if (err.message.includes('Authentication required') || err.message.includes('No authentication')) {
-        // Redirect to login if this is an authentication error
-        window.location.href = '/login';
-        return;
-      }
-      
-      setError('Er is een onverwachte fout opgetreden bij het ophalen van gebruikers.');
-    } finally {
-      setLoading(false);
-    }
-  }, [filterData, selectedCompanyFilter]);
-
-  // Force fetch users and companies when the component mounts or tab changes
-  useEffect(() => {
-    if (currentTab === 1) { // Users tab
-      secureLog.info('Users tab activated, fetching data');
-      fetchUsers();
-      fetchCompanyOptions(); // Ensure we fetch companies when switching to users tab
-    }
-  }, [currentTab, fetchUsers]);
 
   // Function to update user's company
-  const updateUserCompany = async (userId) => {
+  const updateUserCompany = async (userId, companyId) => {
     try {
-      if (!userCompanies[userId]) {
-        setError('Selecteer een bedrijf om te koppelen aan deze gebruiker.');
-        return;
-      }
-      
       // Update user's company using userAPI
       const { error: updateError } = await userAPI.update(userId, { 
-        company_id: userCompanies[userId] 
+        company_id: companyId 
       });
       
       if (updateError) {
         secureLog.error('User company update error', { userId, error: updateError });
-        setError(`Fout bij het updaten van het bedrijf: ${updateError.message}`);
+        setError(`Bedrijf bijwerken mislukt: ${updateError.message || updateError}`);
         return;
       }
       
-      setSuccess('Gebruiker succesvol gekoppeld aan bedrijf!');
-      fetchUsers();
+      setSuccess('Gebruiker bijgewerkt.');
+      fetchDashboardData();
     } catch (err) {
       secureLog.error('User company update error', { userId, error: err.message });
-      setError('Er is een onverwachte fout opgetreden bij het updaten van de gebruiker.');
+      setError('Er is een onverwachte fout opgetreden bij het bijwerken van de gebruiker.');
     }
   };
 
   useEffect(() => {
-    fetchDashboardData();
-    fetchUsers();
-    fetchCompanyOptions();
-
     // Set up polling interval with a longer duration
     const pollingInterval = setInterval(() => {
       // Only fetch if the tab is visible and the component is mounted
       if (document.visibilityState === 'visible') {
-        if (currentTab === 0) {
-          fetchDashboardData();
-        } else {
-          fetchUsers();
-        }
+        fetchDashboardData({ silent: true });
       }
-    }, 60000); // Poll every minute instead of 30 seconds
+    }, REFRESH_INTERVAL_MS);
 
     // Add visibility change listener
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        fetchDashboardData();
-        fetchUsers();
+      const stale = Date.now() - lastFetchRef.current > VISIBILITY_REFRESH_STALE_MS;
+      if (document.visibilityState === 'visible' && stale) {
+        fetchDashboardData({ silent: true });
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -390,7 +310,52 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
       clearInterval(pollingInterval);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [fetchDashboardData, fetchUsers, currentTab]);
+  }, [fetchDashboardData, REFRESH_INTERVAL_MS, VISIBILITY_REFRESH_STALE_MS]);
+
+  const dashboardStats = useMemo(() => {
+    const totalPlayers = data.playerStats?.totalPlayers ?? data.players.length;
+    const onlinePlayers = data.playerStats?.activePlayers ?? data.players.filter(player => player.is_online).length;
+    const offlinePlayers = data.playerStats?.offlinePlayers ?? Math.max(totalPlayers - onlinePlayers, 0);
+
+    return [
+      { label: 'Players', value: totalPlayers, icon: Devices, color: 'primary.main' },
+      { label: 'Online', value: onlinePlayers, icon: Devices, color: 'success.main' },
+      { label: 'Offline', value: offlinePlayers, icon: SignalWifiOff, color: 'error.main' },
+      { label: 'Bedrijven', value: companyOptions.length, icon: Business, color: 'text.primary' },
+      { label: 'Gebruikers', value: data.users.length, icon: Person, color: 'text.primary' }
+    ];
+  }, [data.playerStats, data.players, data.users.length, companyOptions.length]);
+
+  const getRoleLabel = useCallback((role) => {
+    switch (role) {
+      case 'superadmin':
+        return 'Superadmin';
+      case 'bedrijfsadmin':
+        return 'Bedrijfsadmin';
+      default:
+        return 'Gebruiker';
+    }
+  }, []);
+
+  const getCompanyName = useCallback((companyId) => {
+    if (!companyId) return 'Geen bedrijf';
+    return companyOptions.find(company => company.company_id === companyId)?.company_name || 'Onbekend bedrijf';
+  }, [companyOptions]);
+
+  const filteredUsers = useMemo(() => {
+    const normalizedSearch = searchTerm.trim().toLowerCase();
+
+    return users.filter(user => {
+      const email = user.email || '';
+      const role = getRoleLabel(user.role);
+      const companyName = getCompanyName(user.company_id);
+      const matchesSearch = !normalizedSearch || [email, role, companyName]
+        .some(value => value.toLowerCase().includes(normalizedSearch));
+      const matchesCompany = !selectedCompanyFilter || user.company_id === selectedCompanyFilter;
+
+      return matchesSearch && matchesCompany;
+    });
+  }, [users, searchTerm, selectedCompanyFilter, getRoleLabel, getCompanyName]);
 
   const handleDelete = async () => {
     try {
@@ -399,149 +364,177 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
         return;
       }
 
-      secureLog.info('Starting deletion process', { type: deleteType });
-
-      if (deleteType === 'user') {
-        // Don't allow deleting the last superadmin
-        const superadmins = users.filter(u => u.role === 'superadmin');
-        if (superadmins.length === 1 && itemToDelete.role === 'superadmin') {
-          secureLog.warn('Attempted to delete last superadmin');
-          setError('Kan de laatste superadmin niet verwijderen.');
-          handleCloseDeleteDialog();
-          return;
-        }
-
-        // Ensure we have a valid user ID
-        const userId = itemToDelete.id || itemToDelete._id;
-        
-        if (!userId) {
-          secureLog.error('No valid user ID found');
-          setError('Geen geldig gebruikers-ID gevonden.');
-          handleCloseDeleteDialog();
-          return;
-        }
-
-        secureLog.info('Deleting user', { userId });
-        const { error } = await userAPI.delete(userId);
-        
-        if (error) {
-          secureLog.error('Error deleting user:', error);
-          setError(`Fout bij het verwijderen van de gebruiker: ${error}`);
-          handleCloseDeleteDialog();
-          return;
-        }
-
-        secureLog.info('User deleted successfully');
-        // Remove user from local state
-        setUsers(prevUsers => {
-          const newUsers = prevUsers.filter(u => (u.id || u._id) !== userId);
-          return newUsers;
-        });
-        
-        setSuccess('Gebruiker succesvol verwijderd!');
-        handleCloseDeleteDialog();
-        
-        // Force a refresh of the data
-        await fetchUsers();
-      } else if (deleteType === 'player') {
-        const { error } = await playerAPI.delete(itemToDelete._id);
-        
-        if (error) {
-          secureLog.error('Player deletion error', { error });
-          setError('Fout bij het verwijderen van de player.');
-          return;
-        }
-
-        // Remove player from local state
-        setUsers(prevUsers => prevUsers.filter(p => p._id !== itemToDelete._id));
-        setSuccess('Player succesvol verwijderd!');
-        handleCloseDeleteDialog();
-        await fetchDashboardData();
+      if (deleteConfirmation !== 'VERWIJDEREN') {
+        setError('Typ VERWIJDEREN om de gebruiker definitief te verwijderen.');
+        return;
       }
+
+      secureLog.info('Starting user deletion process');
+
+      // Don't allow deleting the last superadmin
+      const superadmins = users.filter(u => u.role === 'superadmin');
+      if (superadmins.length === 1 && itemToDelete.role === 'superadmin') {
+        secureLog.warn('Attempted to delete last superadmin');
+        setError('De laatste superadmin kan niet verwijderd worden.');
+        handleCloseDeleteDialog();
+        return;
+      }
+
+      // Ensure we have a valid user ID
+      const userId = itemToDelete.id || itemToDelete._id;
+      
+      if (!userId) {
+        secureLog.error('No valid user ID found');
+        setError('Geen geldige gebruiker gevonden.');
+        handleCloseDeleteDialog();
+        return;
+      }
+
+      secureLog.info('Deleting user', { userId });
+      const { error } = await userAPI.delete(userId);
+      
+      if (error) {
+        secureLog.error('Error deleting user:', error);
+        setError(`Gebruiker verwijderen mislukt: ${error}`);
+        handleCloseDeleteDialog();
+        return;
+      }
+
+      secureLog.info('User deleted successfully');
+      setUsers(prevUsers => prevUsers.filter(u => (u.id || u._id) !== userId));
+      setData(prevData => ({
+        ...prevData,
+        users: prevData.users.filter(u => (u.id || u._id) !== userId)
+      }));
+      
+      setSuccess('Gebruiker verwijderd.');
+      handleCloseDeleteDialog();
+      await fetchDashboardData();
     } catch (err) {
-      secureLog.error('Deletion process error', { type: deleteType, error: err.message });
+      secureLog.error('Deletion process error', { error: err.message });
       setError('Er is een onverwachte fout opgetreden.');
     }
   };
 
-  const openDeleteDialog = (item, type) => {
+  const openDeleteDialog = (item) => {
     setItemToDelete(item);
-    setDeleteType(type);
+    setDeleteConfirmation('');
     setDeleteDialogOpen(true);
   };
 
   const handleCloseDeleteDialog = () => {
     setDeleteDialogOpen(false);
     setItemToDelete(null);
-    setDeleteType('');
+    setDeleteConfirmation('');
   };
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ px: { xs: 2, md: 3 }, py: { xs: 2, md: 3 }, bgcolor: '#f6f8fb', minHeight: '100vh' }}>
       {!hideHeader && (
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-          <Typography variant="h4" component="h1">
-            {isCompanyDashboard ? 'Company Dashboard' : 'SuperAdmin Dashboard'}
-          </Typography>
-          <Stack direction="row" spacing={2}>
-            <Button
-              variant="contained"
-              component={Link}
-              to="/create-player"
-              startIcon={<Devices />}
-            >
-              NEW PLAYER
-            </Button>
-            <Button
-              variant="contained"
-              component={Link}
-              to="/create-user"
-              startIcon={<Person />}
-              color="warning"
-            >
-              NEW USER
-            </Button>
-            <IconButton onClick={handleRefresh}>
-              <Refresh />
-            </IconButton>
-          </Stack>
-        </Box>
+        <Paper 
+          elevation={0} 
+          sx={{ 
+            p: { xs: 2, md: 3 },
+            mb: 3,
+            bgcolor: 'background.paper',
+            borderRadius: 2,
+            border: '1px solid',
+            borderColor: 'divider'
+          }}
+        >
+          <Box sx={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: { xs: 'flex-start', md: 'center' },
+            gap: 2,
+            flexDirection: { xs: 'column', md: 'row' },
+            mb: 2
+          }}>
+            <Box>
+              <Typography variant="h5" sx={{ fontWeight: 700, color: 'text.primary' }}>
+                {isCompanyDashboard ? 'Bedrijfsdashboard' : 'Superadmin dashboard'}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                Rustige live-status. Automatisch verversen elke 5 minuten.
+                {lastUpdated ? ` Laatst bijgewerkt: ${lastUpdated.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}` : ''}
+              </Typography>
+            </Box>
+            
+            <Stack direction="row" spacing={1} sx={{ alignSelf: { xs: 'stretch', md: 'center' }, justifyContent: 'flex-end' }}>
+              <Button
+                variant="contained"
+                component={Link}
+                to="/create-player"
+                startIcon={<Add />}
+                sx={{ width: { xs: '100%', sm: 'auto' } }}
+              >
+                Player
+              </Button>
+              <Button
+                variant="outlined"
+                component={Link}
+                to="/create-user"
+                startIcon={<Person />}
+                sx={{ width: { xs: '100%', sm: 'auto' } }}
+              >
+                Gebruiker
+              </Button>
+              <Tooltip title="Dashboard vernieuwen">
+                <IconButton
+                  onClick={handleRefresh}
+                  color="primary"
+                  disabled={isRefreshing}
+                  sx={{
+                    animation: isRefreshing ? 'spin 1s linear infinite' : 'none',
+                    '@keyframes spin': {
+                      '0%': {
+                        transform: 'rotate(0deg)'
+                      },
+                      '100%': {
+                        transform: 'rotate(360deg)'
+                      }
+                    }
+                  }}
+                >
+                  <Refresh />
+                </IconButton>
+              </Tooltip>
+            </Stack>
+          </Box>
+        </Paper>
       )}
 
       {/* Stats Overview */}
       {!isCompanyDashboard && (
-        <Grid container spacing={3} sx={{ mb: 4 }}>
-          <Grid item xs={12} sm={6} md={4}>
-            <Paper elevation={2} sx={{ p: 3, bgcolor: '#e3f2fd' }}>
-              <Typography variant="h4" color="primary">
-                {data.players.length}
-              </Typography>
-              <Typography variant="subtitle1" color="text.secondary">
-                Total Players
-              </Typography>
-            </Paper>
+        <Paper
+          elevation={0}
+          sx={{
+            mb: 3,
+            p: 1.5,
+            borderRadius: 2,
+            border: '1px solid',
+            borderColor: 'divider',
+            bgcolor: 'background.paper'
+          }}
+        >
+          <Grid container spacing={1}>
+            {dashboardStats.map(({ label, value, icon: Icon, color }) => (
+              <Grid item xs={6} sm={4} md={2.4} key={label}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, px: 1, py: 1 }}>
+                  <Icon sx={{ color, fontSize: 22, opacity: 0.9 }} />
+                  <Box>
+                    <Typography variant="h6" sx={{ lineHeight: 1.1, fontWeight: 700 }}>
+                      {value}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {label}
+                    </Typography>
+                  </Box>
+                </Box>
+              </Grid>
+            ))}
           </Grid>
-          <Grid item xs={12} sm={6} md={4}>
-            <Paper elevation={2} sx={{ p: 3, bgcolor: '#fff3e0' }}>
-              <Typography variant="h4" color="warning.main">
-                {data.users.length}
-              </Typography>
-              <Typography variant="subtitle1" color="text.secondary">
-                Total Users
-              </Typography>
-            </Paper>
-          </Grid>
-          <Grid item xs={12} sm={6} md={4}>
-            <Paper elevation={2} sx={{ p: 3, bgcolor: '#e8f5e9' }}>
-              <Typography variant="h4" color="success.main">
-                {companyOptions.length}
-              </Typography>
-              <Typography variant="subtitle1" color="text.secondary">
-                Total Companies
-              </Typography>
-            </Paper>
-          </Grid>
-        </Grid>
+        </Paper>
       )}
 
       {/* Error Messages */}
@@ -556,8 +549,22 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
         </Alert>
       )}
 
+      {/* Initial Loading State */}
+      {loading && data.players.length === 0 && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+          <Stack spacing={2} alignItems="center">
+            <CircularProgress />
+            <Typography variant="body2" color="text.secondary">
+              Dashboard laden...
+            </Typography>
+          </Stack>
+        </Box>
+      )}
+
       {/* Main Content */}
-      <Paper sx={{ mb: 4 }}>
+      {(!loading || data.players.length > 0) && (
+      <Paper elevation={0} sx={{ mb: 4, border: '1px solid', borderColor: 'divider', borderRadius: 2, overflow: 'hidden' }}>
+        {isRefreshing && <LinearProgress sx={{ height: 2 }} />}
         <Box sx={{ borderBottom: 1, borderColor: 'divider', position: 'sticky', top: 0, bgcolor: 'background.paper', zIndex: 1 }}>
           <Tabs 
             value={currentTab} 
@@ -572,7 +579,7 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
             />
             <Tab 
               icon={<Person />} 
-              label="Users" 
+              label="Gebruikers" 
               sx={{ minHeight: 48 }}
             />
           </Tabs>
@@ -580,7 +587,7 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
 
         <Box 
           sx={{ 
-            p: 3,
+            p: { xs: 2, md: 3 },
             minHeight: '60vh',
             position: 'relative'
           }}
@@ -589,28 +596,20 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
           <Box
             role="tabpanel"
             hidden={currentTab !== 0}
-            sx={{
-              display: currentTab !== 0 ? 'none' : 'block',
-              position: 'absolute',
-              width: '100%',
-              left: 0,
-              top: 0
-            }}
+            sx={{ display: currentTab !== 0 ? 'none' : 'block' }}
           >
-            {currentTab === 0 && <PlayerManagement />}
+            {currentTab === 0 && (
+              <>
+                <PlayerManagement companies={companyOptions} compactSummary />
+              </>
+            )}
           </Box>
 
           {/* Users Tab */}
           <Box
             role="tabpanel"
             hidden={currentTab !== 1}
-            sx={{
-              display: currentTab !== 1 ? 'none' : 'block',
-              position: 'absolute',
-              width: '100%',
-              left: 0,
-              top: 0
-            }}
+            sx={{ display: currentTab !== 1 ? 'none' : 'block' }}
           >
             {currentTab === 1 && (
               <>
@@ -621,28 +620,36 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
                   mb: 3
                 }}>
                   <Typography variant="h6">
-                    User Management
+                    Gebruikersbeheer
+                    <Typography component="span" variant="body2" color="text.secondary" sx={{ ml: 1 }}>
+                      ({filteredUsers.length} van {users.length})
+                    </Typography>
                   </Typography>
                   
-                  <Stack direction="row" spacing={2}>
+                  <Stack 
+                    direction={{ xs: 'column', sm: 'row' }} 
+                    spacing={2} 
+                    sx={{ width: { xs: '100%', sm: 'auto' } }}
+                  >
                     <TextField
                       size="small"
-                      placeholder="Search users..."
+                      placeholder="Zoek op e-mail, rol of bedrijf..."
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
+                      sx={{ width: { xs: '100%', sm: 250 } }}
                       InputProps={{
                         startAdornment: <Search sx={{ color: 'text.secondary', mr: 1 }} />
                       }}
                     />
                     
-                    <FormControl size="small">
-                      <InputLabel>Filter by Company</InputLabel>
+                    <FormControl size="small" sx={{ width: { xs: '100%', sm: 200 } }}>
+                      <InputLabel>Filter op bedrijf</InputLabel>
                       <Select
                         value={selectedCompanyFilter}
                         onChange={(e) => setSelectedCompanyFilter(e.target.value)}
-                        label="Filter by Company"
+                        label="Filter op bedrijf"
                       >
-                        <MenuItem value="">All Companies</MenuItem>
+                        <MenuItem value="">Alle bedrijven</MenuItem>
                         {companyOptions.map((company) => (
                           <MenuItem key={company.company_id} value={company.company_id}>
                             {company.company_name}
@@ -654,23 +661,39 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
                 </Box>
 
                 {loading ? (
-                  <LinearProgress />
-                ) : data.users.length === 0 ? (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '40vh' }}>
+                    <Stack spacing={2} alignItems="center">
+                      <CircularProgress />
+                      <Typography variant="body2" color="text.secondary">
+                        Gebruikers laden...
+                      </Typography>
+                    </Stack>
+                  </Box>
+                ) : users.length === 0 ? (
                   <Paper sx={{ p: 4, textAlign: 'center' }}>
                     <Typography variant="h6" color="text.secondary">
-                      No users found
+                      Geen gebruikers gevonden
+                    </Typography>
+                  </Paper>
+                ) : filteredUsers.length === 0 ? (
+                  <Paper sx={{ p: 4, textAlign: 'center' }}>
+                    <Typography variant="h6" color="text.secondary">
+                      Geen gebruikers gevonden voor deze zoekopdracht
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                      Pas je zoekterm of bedrijfsfilter aan.
                     </Typography>
                   </Paper>
                 ) : (
-                  <Grid container spacing={3}>
-                    {data.users
-                      .filter(user => 
-                        user.email.toLowerCase().includes(searchTerm.toLowerCase()) &&
-                        (!selectedCompanyFilter || user.company_id === selectedCompanyFilter)
-                      )
-                      .map((user) => (
-                        <Grid item xs={12} sm={6} md={4} key={user.id || user._id}>
-                          <Card>
+                  <Grid container spacing={2}>
+                    {filteredUsers.map((user) => {
+                      const userId = user.id || user._id;
+                      const selectedCompany = userCompanies[userId] ?? user.company_id ?? '';
+                      const companyChanged = selectedCompany !== (user.company_id || '');
+
+                      return (
+                        <Grid item xs={12} sm={6} md={4} lg={3} key={user.id || user._id}>
+                          <Card sx={{ height: '100%' }}>
                             <CardHeader
                               avatar={
                                 <Avatar>
@@ -681,7 +704,7 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
                                 !hideDeleteButtons && (
                                   <IconButton
                                     color="error"
-                                    onClick={() => openDeleteDialog(user, 'user')}
+                                    onClick={() => openDeleteDialog(user)}
                                   >
                                     <Delete />
                                   </IconButton>
@@ -690,7 +713,7 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
                               title={user.email}
                               subheader={
                                 <Chip
-                                  label={user.role}
+                                  label={getRoleLabel(user.role)}
                                   color={user.role === 'superadmin' ? 'error' : user.role === 'bedrijfsadmin' ? 'warning' : 'success'}
                                   size="small"
                                   sx={{ mt: 1 }}
@@ -699,18 +722,17 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
                             />
                             <Divider />
                             <CardContent>
-                              <FormControl fullWidth size="small" sx={{ mb: 2 }}>
-                                <InputLabel>Company</InputLabel>
+                              <FormControl fullWidth size="small">
+                                <InputLabel>Bedrijf</InputLabel>
                                 <Select
-                                  value={userCompanies[user.id || user._id] || user.company_id || ''}
+                                  value={selectedCompany}
                                   onChange={(e) => {
-                                    const userId = user.id || user._id;
                                     setUserCompanies({ ...userCompanies, [userId]: e.target.value });
                                   }}
-                                  label="Company"
+                                  label="Bedrijf"
                                   disabled={user.role === 'superadmin'}
                                 >
-                                  <MenuItem value="">No Company</MenuItem>
+                                  <MenuItem value="">Geen bedrijf</MenuItem>
                                   {companyOptions.map((company) => (
                                     <MenuItem key={company.company_id} value={company.company_id}>
                                       {company.company_name}
@@ -718,18 +740,23 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
                                   ))}
                                 </Select>
                               </FormControl>
-                              <Button
-                                variant="contained"
-                                onClick={() => updateUserCompany(user.id || user._id)}
-                                fullWidth
-                                disabled={user.role === 'superadmin'}
-                              >
-                                Update Company
-                              </Button>
+                              {user.role !== 'superadmin' && (
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  disabled={!companyChanged}
+                                  onClick={() => updateUserCompany(userId, selectedCompany)}
+                                  sx={{ mt: 2 }}
+                                  fullWidth
+                                >
+                                  Bedrijf opslaan
+                                </Button>
+                              )}
                             </CardContent>
                           </Card>
                         </Grid>
-                      ))}
+                      );
+                    })}
                   </Grid>
                 )}
               </>
@@ -737,6 +764,7 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
           </Box>
         </Box>
       </Paper>
+      )}
 
       {/* Success Message */}
       <Snackbar
@@ -753,22 +781,38 @@ function SuperAdminDashboard({ filterData, hideDeleteButtons, isCompanyDashboard
       <Dialog
         open={deleteDialogOpen}
         onClose={handleCloseDeleteDialog}
+        fullWidth
+        maxWidth="sm"
       >
         <DialogTitle>
-          {deleteType === 'user' ? 'Delete User' : 'Delete Player'}
+          Gebruiker verwijderen
         </DialogTitle>
         <DialogContent>
-          <DialogContentText>
-            Are you sure you want to delete {deleteType === 'user' ? `user ${itemToDelete?.email}` : `player ${itemToDelete?.device_id}`}?
-            This action cannot be undone.
-          </DialogContentText>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            Je verwijdert gebruiker {itemToDelete?.email}. Deze actie kan niet ongedaan gemaakt worden.
+          </Alert>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Typ VERWIJDEREN om deze gebruiker definitief te verwijderen.
+          </Typography>
+          <TextField
+            autoFocus
+            fullWidth
+            value={deleteConfirmation}
+            onChange={(event) => setDeleteConfirmation(event.target.value)}
+            placeholder="VERWIJDEREN"
+          />
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseDeleteDialog}>
-            Cancel
+            Annuleren
           </Button>
-          <Button onClick={handleDelete} color="error" variant="contained">
-            Delete
+          <Button
+            onClick={handleDelete}
+            color="error"
+            variant="contained"
+            disabled={deleteConfirmation !== 'VERWIJDEREN'}
+          >
+            Definitief verwijderen
           </Button>
         </DialogActions>
       </Dialog>

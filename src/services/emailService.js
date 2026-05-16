@@ -202,13 +202,15 @@ setInterval(retryFailedEmails, 5 * 60 * 1000); // Every 5 minutes
  * @param {string} to - Recipient email 
  * @param {string} resetToken - Password reset token
  */
+const getBaseUrl = () => (process.env.BASE_URL || 'https://player-dashboard.onrender.com').replace(/\/$/, '');
+
 const sendPasswordResetEmail = async (to, resetToken) => {
   if (isBrowser) {
     secureLog.info('Browser mock: Would send password reset email', { to });
     return { success: true };
   }
 
-  const resetLink = `https://player-dashboard.onrender.com/reset-password?token=${resetToken}`;
+  const resetLink = `${getBaseUrl()}/reset-password?token=${resetToken}`;
   const subject = 'Wachtwoord resetten - Display Beheer';
   const text = `
 Beste gebruiker,
@@ -313,7 +315,7 @@ const sendRegistrationInvitationEmail = async (to, registrationToken, role, comp
     return { success: true };
   }
 
-  const registrationLink = `https://player-dashboard.onrender.com/complete-registration?token=${registrationToken}`;
+  const registrationLink = `${getBaseUrl()}/complete-registration?token=${registrationToken}`;
   const subject = 'Welkom bij Display Beheer - Activeer je account';
   const text = `
 Beste toekomstige gebruiker,
