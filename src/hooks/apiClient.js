@@ -1776,8 +1776,17 @@ const authAPI = {
         body: JSON.stringify(credentials)
       });
 
-      // Parse the response data
-      const data = await response.json();
+      const responseText = await response.text();
+      let data = {};
+      try {
+        data = responseText ? JSON.parse(responseText) : {};
+      } catch (parseError) {
+        console.error('Login returned non-JSON response:', response.status, responseText.slice(0, 120));
+        return {
+          error: `Server returned an unexpected response (${response.status}). Check the Render service logs.`,
+          data: null
+        };
+      }
       
       // Handle non-200 responses
       if (!response.ok) {

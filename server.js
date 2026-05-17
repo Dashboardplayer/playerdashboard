@@ -70,11 +70,24 @@ app.use(versionMiddleware);
 
 // Security Headers Configuration
 if (process.env.NODE_ENV === 'production') {
+  const configuredOrigins = [
+    process.env.BASE_URL,
+    ...(process.env.ALLOWED_ORIGINS?.split(',') || []),
+    'https://player-dashboard.onrender.com'
+  ]
+    .map((value) => value?.trim())
+    .filter(Boolean);
+  const configuredWebSocketOrigins = configuredOrigins
+    .filter((origin) => origin.startsWith('https://'))
+    .map((origin) => origin.replace(/^https:\/\//, 'wss://'));
   const cspConnectSrc = [
     "'self'",
     ...(process.env.CSP_CONNECT_SRC?.split(',').map((value) => value.trim()).filter(Boolean) || [
-      'https://player-dashboard.onrender.com',
-      'wss://player-dashboard.onrender.com'
+      ...configuredOrigins,
+      ...configuredWebSocketOrigins,
+      'https://www.google.com',
+      'https://www.gstatic.com',
+      'https://www.recaptcha.net'
     ])
   ];
   const cloudinaryImageSrc = process.env.CLOUDINARY_CLOUD_NAME
@@ -85,12 +98,12 @@ if (process.env.NODE_ENV === 'production') {
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "https://www.google.com", "https://www.gstatic.com"],
+        scriptSrc: ["'self'", "https://www.google.com", "https://www.gstatic.com", "https://www.recaptcha.net"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         fontSrc: ["'self'", "https://fonts.gstatic.com"],
-        imgSrc: ["'self'", "data:", cloudinaryImageSrc],
+        imgSrc: ["'self'", "data:", cloudinaryImageSrc, "https://www.google.com", "https://www.gstatic.com"],
         connectSrc: cspConnectSrc,
-        frameSrc: ["'self'", "https://www.google.com"],
+        frameSrc: ["'self'", "https://www.google.com", "https://www.recaptcha.net"],
         objectSrc: ["'none'"],
         mediaSrc: ["'self'"],
         formAction: ["'self'"],
@@ -151,6 +164,18 @@ const wss = setupWebSocketServer(server);
 app.use(requestStatsMiddleware);
 
 registerApiRoutes(app, { wss, rateLimitConfig });
+
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: 'API endpoint not found' });
+});
+
+app.use((err, req, res, next) => {
+  secureLog.error('Unhandled server error', { path: req.path, error: err.message });
+  if (req.path.startsWith('/api')) {
+    return res.status(err.status || 500).json({ error: 'Internal server error' });
+  }
+  return next(err);
+});
 
 // Start the server
 server.listen(PORT, () => {

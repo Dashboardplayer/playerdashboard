@@ -4,7 +4,15 @@ import { Container, Box, Typography, TextField, Button, Alert, Paper, Link, Circ
 import { useNavigate } from 'react-router-dom';
 import { LockOutlined } from '@mui/icons-material';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
+const API_URL = process.env.REACT_APP_API_URL || (() => {
+  if (typeof window !== 'undefined') {
+    const { hostname } = window.location;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return 'http://localhost:5001/api';
+    }
+  }
+  return '/api';
+})();
 
 function ForgotPassword() {
   const [email, setEmail] = useState('');
@@ -38,7 +46,13 @@ function ForgotPassword() {
         credentials: 'same-origin'
       });
 
-      const data = await response.json();
+      const responseText = await response.text();
+      let data = {};
+      try {
+        data = responseText ? JSON.parse(responseText) : {};
+      } catch (parseError) {
+        throw new Error(`Server gaf een onverwachte response (${response.status}). Controleer de Render logs.`);
+      }
       
       if (!response.ok) {
         throw new Error(data.error || 'Er ging iets mis bij het verwerken van je verzoek.');

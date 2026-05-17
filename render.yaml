@@ -34,9 +34,11 @@ services:
       - key: CLOUDINARY_SCREENSHOTS_FOLDER
         value: playerdashboard/screenshots
       - key: ALLOWED_ORIGINS
-        value: https://player-dashboard.onrender.com
+        value: https://displaybeheer.nl,https://www.displaybeheer.nl,https://player-dashboard.onrender.com
       - key: BASE_URL
-        value: https://player-dashboard.onrender.com
+        value: https://www.displaybeheer.nl
+      - key: CSP_CONNECT_SRC
+        value: https://displaybeheer.nl,https://www.displaybeheer.nl,wss://displaybeheer.nl,wss://www.displaybeheer.nl,https://player-dashboard.onrender.com,wss://player-dashboard.onrender.com,https://www.google.com,https://www.gstatic.com,https://www.recaptcha.net
       - key: CORS_MAX_AGE
         value: "86400"
     healthCheckPath: /api/ping
