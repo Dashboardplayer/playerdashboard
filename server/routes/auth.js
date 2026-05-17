@@ -167,9 +167,6 @@ router.post('/login', loginLimiter, async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    user.loginAttempts = 0;
-    await user.save();
-
     const twoFAStatus = await get2FAStatus(user._id);
     if (twoFAStatus.enabled) {
       const tempToken = jwt.sign(
@@ -379,8 +376,17 @@ router.post('/forgot-password', async (req, res) => {
       });
     }
 
-    const resetToken = user.generateResetToken();
-    await user.save();
+    const resetToken = crypto.randomBytes(20).toString('hex');
+    await User.updateOne(
+      { _id: user._id },
+      {
+        $set: {
+          resetPasswordToken: resetToken,
+          resetPasswordExpires: new Date(Date.now() + 60 * 60 * 1000),
+          updatedAt: new Date()
+        }
+      }
+    );
 
     const emailResult = await sendPasswordResetEmail(normalizedEmail, resetToken);
     if (!emailResult.success) {

@@ -100,12 +100,17 @@ if (!isBrowser && userSchema) {
       await this.incrementLoginAttempts();
       return false;
     }
-    // Reset login attempts on successful login
-    if (this.loginAttempts > 0) {
-      await this.resetLoginAttempts();
-    }
-    this.lastLogin = new Date();
-    await this.save();
+    const lastLogin = new Date();
+    await this.constructor.updateOne(
+      { _id: this._id },
+      {
+        $set: { loginAttempts: 0, lastLogin },
+        $unset: { lockUntil: '' }
+      }
+    );
+    this.loginAttempts = 0;
+    this.lockUntil = undefined;
+    this.lastLogin = lastLogin;
     return true;
   };
 
@@ -122,21 +127,32 @@ if (!isBrowser && userSchema) {
       return;
     }
     
-    this.loginAttempts += 1;
+    const loginAttempts = (this.loginAttempts || 0) + 1;
+    const update = { $set: { loginAttempts } };
     
     // Lock account after 5 failed attempts
-    if (this.loginAttempts >= 5) {
-      this.lockUntil = Date.now() + 30 * 60 * 1000; // Lock for 30 minutes
+    if (loginAttempts >= 5) {
+      update.$set.lockUntil = new Date(Date.now() + 30 * 60 * 1000); // Lock for 30 minutes
     }
     
-    await this.save();
+    await this.constructor.updateOne({ _id: this._id }, update);
+    this.loginAttempts = loginAttempts;
+    if (update.$set.lockUntil) {
+      this.lockUntil = update.$set.lockUntil;
+    }
   };
 
   // Reset login attempts
   userSchema.methods.resetLoginAttempts = async function() {
+    await this.constructor.updateOne(
+      { _id: this._id },
+      {
+        $set: { loginAttempts: 0 },
+        $unset: { lockUntil: '' }
+      }
+    );
     this.loginAttempts = 0;
     this.lockUntil = undefined;
-    await this.save();
   };
 
   // Pre-save middleware
