@@ -94,8 +94,7 @@ export const verifyTOTP = async (userId, token) => {
     });
 
     if (!verified) {
-      console.log('TOTP verification failed for user:', userId);
-      console.log('Received token:', cleanToken);
+      console.warn('TOTP verification failed');
       return { error: 'Invalid verification code' };
     }
 

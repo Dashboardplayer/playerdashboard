@@ -34,8 +34,6 @@ function ForgotPassword() {
     setLoading(true);
 
     try {
-      console.log('Requesting password reset for:', email);
-      
       const response = await fetch(`${API_URL}/auth/forgot-password`, {
         method: 'POST',
         headers: {
@@ -56,11 +54,6 @@ function ForgotPassword() {
       
       if (!response.ok) {
         throw new Error(data.error || 'Er ging iets mis bij het verwerken van je verzoek.');
-      }
-
-      // In development mode, log the reset token
-      if (data.resetToken) {
-        console.log('Development mode - Reset token:', data.resetToken);
       }
 
       setSuccess(true);
@@ -101,17 +94,26 @@ function ForgotPassword() {
             mb: 4
           }}
         >
-          <Typography
-            variant="h4"
-            component="h1"
+          <Box
+            component="img"
+            src={`${process.env.PUBLIC_URL}/displaybeheer-logo.png`}
+            alt="DisplayBeheer"
             sx={{
-              fontWeight: 700,
-              color: '#1a365d',
-              mb: 1,
-              textAlign: 'center'
+              width: { xs: 260, sm: 340 },
+              maxWidth: '100%',
+              height: 'auto',
+              mb: 1.5
+            }}
+          />
+          <Typography
+            variant="subtitle1"
+            sx={{
+              color: '#4a5568',
+              textAlign: 'center',
+              maxWidth: '400px'
             }}
           >
-            DisplayBeheer.nl
+            Herstel veilig toegang tot je dashboard
           </Typography>
         </Box>
 

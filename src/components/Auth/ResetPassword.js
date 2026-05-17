@@ -155,17 +155,26 @@ function ResetPassword() {
             mb: 4
           }}
         >
-          <Typography
-            variant="h4"
-            component="h1"
+          <Box
+            component="img"
+            src={`${process.env.PUBLIC_URL}/displaybeheer-logo.png`}
+            alt="DisplayBeheer"
             sx={{
-              fontWeight: 700,
-              color: '#1a365d',
-              mb: 1,
-              textAlign: 'center'
+              width: { xs: 260, sm: 340 },
+              maxWidth: '100%',
+              height: 'auto',
+              mb: 1.5
+            }}
+          />
+          <Typography
+            variant="subtitle1"
+            sx={{
+              color: '#4a5568',
+              textAlign: 'center',
+              maxWidth: '400px'
             }}
           >
-            DisplayBeheer.nl
+            Stel een nieuw veilig wachtwoord in
           </Typography>
         </Box>
 

@@ -452,10 +452,6 @@ const WS_URL = (() => {
     const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
     const protocol = typeof window !== 'undefined' ? window.location.protocol : '';
     
-    // Log for debugging
-    console.log('Current hostname:', hostname);
-    console.log('Current protocol:', protocol);
-    
     // Always use secure WebSockets with HTTPS, insecure with HTTP
     const wsProtocol = protocol === 'https:' ? 'wss:' : 'ws:';
     
@@ -610,7 +606,7 @@ function initializeWebSocket() {
     }
     
     const protocols = [`jwt.${tokenStr}`];
-    console.log('Initializing WebSocket with protocol:', protocols[0].substring(0, 15) + '...');
+    secureLog.info('Initializing WebSocket connection');
     
     try {
       // Check if the server is available first by making a simple fetch request
@@ -638,18 +634,12 @@ function initializeWebSocket() {
         }
       })();
       
-      console.log('Attempting to ping server at:', pingURL);
-      
       fetch(pingURL, { method: 'HEAD' })
         .then((response) => {
           if (!response.ok) {
             throw new Error(`Server returned ${response.status} ${response.statusText}`);
           }
-          console.log('Server ping successful');
-          
           // If the server responds, try to connect via WebSocket
-          console.log('Initializing WebSocket connection to:', WS_URL);
-          
           try {
             // Create WebSocket with specified protocol
             ws = new WebSocket(WS_URL, protocols);
@@ -1758,7 +1748,7 @@ const userAPI = {
 const authAPI = {
   login: async (credentials) => {
     try {
-      console.log('Login attempt with:', credentials.email);
+      secureLog.info('Login attempt started');
       
       // Make sure we have valid credentials
       if (!credentials.email || !credentials.password) {
@@ -1840,8 +1830,6 @@ const authAPI = {
             // Set authentication details
           try {
             // Save the authentication data
-            console.log('Setting auth with token and user info');
-            
             // Ensure token is a string before saving
             let tokenStr;
             if (typeof data.token === 'string') {
@@ -1870,7 +1858,6 @@ const authAPI = {
                 // Delayed WebSocket initialization
               setTimeout(() => {
                 try {
-                  console.log('Delayed WebSocket initialization after login');
                   initializeWebSocket();
                   } catch (error) {
                     console.error('WebSocket init error:', error);
@@ -2301,8 +2288,9 @@ const authAPI = {
 
   verifyToken: async (token) => {
     try {
-      const result = await fetchWithAuth(`/auth/verify-token?token=${token}`, {
-        method: 'GET'
+      const result = await fetchWithAuth('/auth/verify-token', {
+        method: 'POST',
+        body: JSON.stringify({ token })
       });
       return result;
     } catch (error) {

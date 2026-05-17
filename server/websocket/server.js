@@ -178,7 +178,7 @@ function setupWebSocketServer(server) {
         ws.clientId = message.clientId;
         ws.isAuthenticated = true;
         ws.isDevice = false;
-        console.log('WebSocket authenticated via message for user:', decoded.email);
+        secureLog.info('WebSocket authenticated via message', { userId: decoded.sub });
         ws.send(JSON.stringify({ type: 'auth_success', timestamp: Date.now() }));
         return;
       }
@@ -251,7 +251,6 @@ function setupWebSocketServer(server) {
         const jwtProtocol = protocols.split(', ').find((p) => p.startsWith('jwt.'));
         if (jwtProtocol) {
           token = jwtProtocol.substring(4);
-          console.log('Token found in protocol (truncated):', token.substring(0, 15) + '...');
         }
       }
 
@@ -278,7 +277,7 @@ function setupWebSocketServer(server) {
             token
           };
 
-          console.log('WebSocket authenticated for user:', { email: decoded.email });
+          secureLog.info('WebSocket authenticated for dashboard user', { userId: decoded.sub });
 
           wss.handleUpgrade(request, socket, head, function done(ws) {
             ws.user = request.user;

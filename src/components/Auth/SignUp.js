@@ -20,7 +20,15 @@ import { authAPI } from '../../hooks/apiClient.js';
 import { validatePassword } from '../../utils/passwordValidation';
 import PasswordRequirements, { getPasswordErrors } from './PasswordRequirements';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
+const API_URL = process.env.REACT_APP_API_URL || (() => {
+  if (typeof window !== 'undefined') {
+    const { hostname } = window.location;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return 'http://localhost:5001/api';
+    }
+  }
+  return '/api';
+})();
 const REGISTRATION_TOKEN_KEY = 'registration_token';
 
 function SignUp() {
@@ -38,13 +46,11 @@ function SignUp() {
   useEffect(() => {
     // First check URL for token
     const tokenFromUrl = searchParams.get('token');
-    console.log('🔍 Token from URL:', tokenFromUrl);
     
     // Then check localStorage as fallback
     const savedToken = localStorage.getItem(REGISTRATION_TOKEN_KEY);
     
     if (tokenFromUrl) {
-      console.log('✅ Found token in URL, saving and fetching user info...');
       // Save token to localStorage before removing from URL
       localStorage.setItem(REGISTRATION_TOKEN_KEY, tokenFromUrl);
       setToken(tokenFromUrl);
@@ -55,53 +61,39 @@ function SignUp() {
       newSearchParams.delete('token');
       navigate({ search: newSearchParams.toString() }, { replace: true });
     } else if (savedToken) {
-      console.log('✅ Found token in localStorage, fetching user info...');
       setToken(savedToken);
       fetchUserInfo(savedToken);
     } else {
-      console.log('❌ No token found in URL or localStorage');
       setError('Geen registratietoken gevonden. Gebruik de link uit je uitnodigingsmail.');
       setLoading(false);
     }
   }, [searchParams, navigate]);
 
-  const fetchUserInfo = async (token) => {
+  const fetchUserInfo = async (registrationToken) => {
     try {
       setLoading(true);
-      const url = `${API_URL}/auth/verify-token?token=${token}`;
-      console.log('🔍 Making request to:', url);
-      
-      const response = await fetch(url);
-      console.log('📥 Response status:', response.status);
-      console.log('📥 Response headers:', Object.fromEntries(response.headers.entries()));
-      
+      const response = await fetch(`${API_URL}/auth/verify-token`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({ token: registrationToken })
+      });
       const data = await response.json();
-      console.log('📥 Response data:', data);
       
       if (data.error) {
-        console.error('❌ Server returned error:', data.error);
+        console.error('Registration token verification failed');
         setError('Ongeldige of verlopen registratielink. Vraag een nieuwe aan.');
         localStorage.removeItem(REGISTRATION_TOKEN_KEY);
         return;
       }
 
-      console.log('✅ Setting user info with data:', data);
       setEmail(data.email || '');
       setRole(data.role || '');
       setCompanyName(data.company_name || '');
-      
-      // Verify the state was set
-      console.log('✅ State after setting:', {
-        email: data.email,
-        role: data.role,
-        companyName: data.company_name
-      });
     } catch (err) {
-      console.error('❌ Detailed error:', {
-        message: err.message,
-        stack: err.stack,
-        error: err
-      });
+      console.error('Registration token verification error');
       setError('Er is een fout opgetreden bij het ophalen van je gegevens.');
       localStorage.removeItem(REGISTRATION_TOKEN_KEY);
     } finally {
@@ -281,3 +273,4 @@ function SignUp() {
 }
 
 export default SignUp;
+

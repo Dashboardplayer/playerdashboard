@@ -13,7 +13,7 @@ const addToBlacklist = async (jti, exp, userId, token, reason = 'LOGOUT') => {
     const tokenHash = hashToken(token);
 
     await BlacklistedToken.blacklistToken(jti, expiryDate, userId, tokenHash, reason);
-    console.log(`Token ${jti} added to blacklist`);
+    console.log('Token added to blacklist');
   } catch (error) {
     console.error('Error adding token to blacklist:', error);
     throw error;
@@ -55,7 +55,7 @@ const blacklistAllUserTokens = async (userId, reason = 'SECURITY_CONCERN') => {
       tokenHash: hashToken(`user_${userId}`),
       reason
     });
-    console.log(`All tokens for user ${userId} have been blacklisted`);
+    console.log('All tokens for user have been blacklisted');
   } catch (error) {
     console.error('Error blacklisting user tokens:', error);
     throw error;

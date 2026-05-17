@@ -230,8 +230,8 @@ function NavBar() {
               src={`${process.env.PUBLIC_URL}/displaybeheer-logo.png`}
               alt="DisplayBeheer"
               sx={{
-                width: { xs: 160, sm: 210 },
-                maxHeight: 44,
+                width: { xs: 190, sm: 260 },
+                maxHeight: { xs: 48, sm: 58 },
                 objectFit: 'contain',
                 objectPosition: 'left center'
               }}

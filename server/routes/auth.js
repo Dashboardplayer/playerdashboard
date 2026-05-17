@@ -674,38 +674,49 @@ router.post('/resend-invitation/:userId', auth, authorize(['superadmin']), async
   }
 });
 
+const handleVerifyRegistrationToken = async (token, res) => {
+  if (!token) {
+    return res.status(400).json({ error: 'Token is required' });
+  }
+
+  const user = await User.findOne({
+    registrationToken: token,
+    registrationTokenExpires: { $gt: Date.now() },
+    isActive: false
+  });
+
+  if (!user) {
+    return res.status(400).json({ error: 'Invalid or expired registration token' });
+  }
+
+  let company_name = '';
+  if (user.company_id) {
+    const company = await Company.findOne({ company_id: user.company_id });
+    if (company) {
+      company_name = company.company_name;
+    }
+  }
+
+  return res.json({
+    email: user.email,
+    role: user.role,
+    company_id: user.company_id,
+    company_name
+  });
+};
+
+router.post('/verify-token', async (req, res) => {
+  try {
+    return await handleVerifyRegistrationToken(req.body.token, res);
+  } catch (error) {
+    secureLog.error('Token verification error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 router.get('/verify-token', async (req, res) => {
   try {
-    const { token } = req.query;
-
-    if (!token) {
-      return res.status(400).json({ error: 'Token is required' });
-    }
-
-    const user = await User.findOne({
-      registrationToken: token,
-      registrationTokenExpires: { $gt: Date.now() },
-      isActive: false
-    });
-
-    if (!user) {
-      return res.status(400).json({ error: 'Invalid or expired registration token' });
-    }
-
-    let company_name = '';
-    if (user.company_id) {
-      const company = await Company.findOne({ company_id: user.company_id });
-      if (company) {
-        company_name = company.company_name;
-      }
-    }
-
-    return res.json({
-      email: user.email,
-      role: user.role,
-      company_id: user.company_id,
-      company_name
-    });
+    return await handleVerifyRegistrationToken(req.query.token, res);
   } catch (error) {
     secureLog.error('Token verification error:', error);
     return res.status(500).json({ error: 'Internal server error' });
