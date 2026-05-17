@@ -16,7 +16,15 @@ import { Visibility, VisibilityOff, LockOutlined } from '@mui/icons-material';
 import { validatePassword } from '../../utils/passwordValidation';
 import PasswordRequirements from './PasswordRequirements';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
+const API_URL = process.env.REACT_APP_API_URL || (() => {
+  if (typeof window !== 'undefined') {
+    const { hostname } = window.location;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return 'http://localhost:5001/api';
+    }
+  }
+  return '/api';
+})();
 
 function ResetPassword() {
   const [searchParams] = useSearchParams();
@@ -41,12 +49,12 @@ function ResetPassword() {
     } else {
       setToken(tokenFromUrl);
       // Verify token format
-      if (!/^[a-f0-9]{40}$/.test(tokenFromUrl)) {
+      if (!/^[a-f0-9]{40,128}$/.test(tokenFromUrl)) {
         setIsError(true);
         setStatusMessage('Ongeldig resettoken formaat. Gebruik de link uit je e-mail.');
         return;
       }
-      console.log('Reset token from URL:', tokenFromUrl);
+      window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, [searchParams]);
 
@@ -75,8 +83,6 @@ function ResetPassword() {
     }
 
     try {
-      console.log('Attempting to reset password with token:', token);
-      
       const response = await fetch(`${API_URL}/auth/reset-password`, {
         method: 'POST',
         headers: {
@@ -88,10 +94,16 @@ function ResetPassword() {
         }),
       });
       
-      const data = await response.json();
+      const responseText = await response.text();
+      let data = {};
+      try {
+        data = responseText ? JSON.parse(responseText) : {};
+      } catch (parseError) {
+        throw new Error(`Server gaf een onverwachte response (${response.status}). Controleer de Render logs.`);
+      }
       
       if (!response.ok) {
-        console.error('Password reset error:', data);
+        console.error('Password reset failed');
         setIsError(true);
         if (data.error === 'Invalid or expired reset token') {
           setStatusMessage('De resetlink is verlopen of ongeldig. Vraag een nieuwe aan.');
@@ -99,14 +111,8 @@ function ResetPassword() {
           setStatusMessage(`Er ging iets mis: ${data.error || 'Onbekende fout'}`);
         }
       } else {
-        console.log('Password reset success:', data);
         setIsError(false);
         setStatusMessage('Je wachtwoord is succesvol aangepast. Je wordt doorgestuurd naar de inlogpagina.');
-        
-        // Store the new auth token if provided
-        if (data.token) {
-          localStorage.setItem('authToken', data.token);
-        }
         
         // Redirect to login page after a short delay
         setTimeout(() => {

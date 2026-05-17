@@ -81,6 +81,11 @@ const getCookieValue = (req, name) => {
   return decodeURIComponent(match.substring(name.length + 1));
 };
 
+const hashResetToken = (token) => crypto
+  .createHash('sha256')
+  .update(String(token))
+  .digest('hex');
+
 const generateToken = (user) => {
   if (!user || !user._id || !user.email || !user.role) {
     throw new Error('Invalid user data for token generation');
@@ -376,12 +381,12 @@ router.post('/forgot-password', async (req, res) => {
       });
     }
 
-    const resetToken = crypto.randomBytes(20).toString('hex');
+    const resetToken = crypto.randomBytes(32).toString('hex');
     await User.updateOne(
       { _id: user._id },
       {
         $set: {
-          resetPasswordToken: resetToken,
+          resetPasswordToken: hashResetToken(resetToken),
           resetPasswordExpires: new Date(Date.now() + 60 * 60 * 1000),
           updatedAt: new Date()
         }
@@ -419,8 +424,11 @@ router.post('/reset-password', async (req, res) => {
     }
 
     const user = await User.findOne({
-      resetPasswordToken: resetToken,
-      resetPasswordExpires: { $gt: Date.now() }
+      resetPasswordExpires: { $gt: Date.now() },
+      $or: [
+        { resetPasswordToken: hashResetToken(resetToken) },
+        { resetPasswordToken: resetToken }
+      ]
     });
 
     if (!user) {
@@ -442,8 +450,6 @@ router.post('/reset-password', async (req, res) => {
     user.status = 'active';
     await user.save();
 
-    const { token } = generateToken(user);
-
     return res.json({
       message: 'Password has been reset successfully',
       user: {
@@ -451,8 +457,7 @@ router.post('/reset-password', async (req, res) => {
         email: user.email,
         role: user.role,
         company_id: user.company_id
-      },
-      token
+      }
     });
   } catch (error) {
     console.error('Password reset error:', error);
